@@ -304,7 +304,7 @@ class KaraokeUI {
       } else if (e.key === ']' || (e.altKey && (e.key === '.' || e.code === 'Period'))) {
         e.preventDefault();
         this.changePitch(1);
-      } else if (e.key === '\\' || (e.altKey && (e.key === '/' || e.code === 'Slash'))) {
+      } else if (e.key === '\\' || (e.altKey && (e.key === '/' || e.key === '0' || e.code === 'Slash' || e.code === 'Digit0'))) {
         e.preventDefault();
         this.setPitch(0);
       } else if (e.altKey && (e.key === 'm' || e.key === 'M' || e.code === 'KeyM')) {

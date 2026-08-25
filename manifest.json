@@ -64,8 +64,8 @@
     },
     "pitch-reset": {
       "suggested_key": {
-        "default": "Alt+Slash",
-        "mac": "Alt+Slash"
+        "default": "Alt+0",
+        "mac": "Alt+0"
       },
       "description": "원키로 리셋 (0 Key)"
     },
