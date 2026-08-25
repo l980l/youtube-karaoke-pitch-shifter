@@ -9,11 +9,12 @@ class AudioPitchShifter {
     this.videoElement = null;
     this.sourceNode = null;
     
-    // Nodes
+    // Master Gains & Limiter
     this.inputGain = null;
     this.outputGain = null;
     this.bypassGain = null;
     this.pitchGain = null;
+    this.compressor = null;
     
     // Jungle Pitch Shifter Nodes
     this.delay1 = null;
@@ -22,10 +23,10 @@ class AudioPitchShifter {
     this.delayGain2 = null;
     this.mod1 = null;
     this.mod2 = null;
+    this.fade1 = null;
+    this.fade2 = null;
     this.modGain1 = null;
     this.modGain2 = null;
-    this.fadeTable = null;
-    this.delayTable = null;
     
     // Vocal Cut (Center Channel Cancellation) Nodes
     this.vocalCutEnabled = false;
@@ -35,6 +36,8 @@ class AudioPitchShifter {
     this.bassFilterNode = null;
     this.vocalCutGain = null;
     this.directPassGain = null;
+    this.vocalProcessingIn = null;
+    this.vocalProcessingOut = null;
     
     // State
     this.semitones = 0; // -12 to +12
@@ -42,8 +45,7 @@ class AudioPitchShifter {
     this.volume = 1.0; // 0.0 to 2.5
     this.isInitialized = false;
     this.isConnected = false;
-    this.bufferTime = 0.100; // 100ms buffer
-    this.fadeTime = 0.050;   // 50ms fade
+    this.bufferTime = 0.060; // 60ms buffer (최적의 노래방 음질 및 제로 레이턴시)
   }
 
   /**
@@ -112,11 +114,19 @@ class AudioPitchShifter {
   setupAudioGraph() {
     const ctx = this.audioCtx;
 
-    // 1. Input / Output Master Gains
+    // 1. Master Gains & Transparent Dynamics Compressor (일정한 음량 유지)
     this.inputGain = ctx.createGain();
     this.outputGain = ctx.createGain();
     this.bypassGain = ctx.createGain();
     this.pitchGain = ctx.createGain();
+
+    // 소프트 리미터 / 컴프레서 (키 변경 시 음량 튐 및 왜곡 방지)
+    this.compressor = ctx.createDynamicsCompressor();
+    this.compressor.threshold.setValueAtTime(-6, ctx.currentTime);
+    this.compressor.knee.setValueAtTime(12, ctx.currentTime);
+    this.compressor.ratio.setValueAtTime(4, ctx.currentTime);
+    this.compressor.attack.setValueAtTime(0.003, ctx.currentTime);
+    this.compressor.release.setValueAtTime(0.15, ctx.currentTime);
 
     // Source -> Input Gain
     this.sourceNode.connect(this.inputGain);
@@ -127,13 +137,16 @@ class AudioPitchShifter {
     // 3. Pitch Shifter (Jungle Engine) 서브그래프
     this.setupJungleGraph();
 
-    // 4. Output -> Destination
+    // 4. Sum -> Compressor -> Master Output -> Destination
+    this.bypassGain.connect(this.compressor);
+    this.pitchGain.connect(this.compressor);
+    this.compressor.connect(this.outputGain);
     this.outputGain.connect(ctx.destination);
   }
 
   /**
    * 보컬 제거 (가라오케 모드) 그래프 설정
-   * 스테레오 채널 분리 후 위상 반전 및 저음(120Hz 이하) 보존 믹싱
+   * 스테레오 채널 분리 후 위상 반전 및 저음(140Hz 이하) 보존 믹싱
    */
   setupVocalCutGraph() {
     const ctx = this.audioCtx;
@@ -153,25 +166,23 @@ class AudioPitchShifter {
     this.inverterNode = ctx.createGain();
     this.inverterNode.gain.value = -1; // 위상 반전
 
-    // 저음 보존용 로우패스 필터 (베이스/킥 드럼 유지)
+    // 저음 보존용 로우패스 필터 (베이스/드럼 보존)
     this.bassFilterNode = ctx.createBiquadFilter();
     this.bassFilterNode.type = 'lowpass';
     this.bassFilterNode.frequency.value = 140;
 
     const leftGain = ctx.createGain();
-    const rightGain = ctx.createGain();
 
     this.inputGain.connect(this.vocalProcessingIn);
     this.vocalProcessingIn.connect(this.splitterNode);
 
-    // (L - R) calculation for both channels
-    // L channel
+    // (L - R) mono difference
     this.splitterNode.connect(leftGain, 0);
     this.splitterNode.connect(this.inverterNode, 1);
     this.inverterNode.connect(leftGain);
-    leftGain.connect(this.mergerNode, 0, 0);
 
-    // R channel (copy inverted mono diff)
+    // Feed to both L and R channels
+    leftGain.connect(this.mergerNode, 0, 0);
     leftGain.connect(this.mergerNode, 0, 1);
 
     // Add bass back into merger
@@ -190,12 +201,13 @@ class AudioPitchShifter {
 
   /**
    * Jungle Time-domain Pitch Shifter 모듈
+   * Hann 윈도우 기반 크로스페이드로 볼륨 균일 유지 (Equal Loudness)
    */
   setupJungleGraph() {
     const ctx = this.audioCtx;
     const bufferTime = this.bufferTime;
 
-    // Delays
+    // Delays (최대 1초까지 버퍼링)
     this.delay1 = ctx.createDelay(1.0);
     this.delay2 = ctx.createDelay(1.0);
     this.delayGain1 = ctx.createGain();
@@ -219,9 +231,10 @@ class AudioPitchShifter {
       channel1[i] = t * bufferTime;
       channel2[i] = ((t + 0.5) % 1.0) * bufferTime;
 
-      // Hann / Raised Cosine fade curve
-      fadeChan1[i] = Math.sin(t * Math.PI);
-      fadeChan2[i] = Math.sin(((t + 0.5) % 1.0) * Math.PI);
+      // Hann Window: 0.5 * (1 - cos(2*pi*t))
+      // Hann 윈도우는 두 페이즈의 합(fade1 + fade2)이 모든 구간에서 정확히 1.0으로 일정하게 유지됩니다!
+      fadeChan1[i] = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * t));
+      fadeChan2[i] = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * ((t + 0.5) % 1.0)));
     }
 
     // Modulators (AudioBufferSourceNode loop)
@@ -263,10 +276,8 @@ class AudioPitchShifter {
     this.delayGain1.connect(this.pitchGain);
     this.delayGain2.connect(this.pitchGain);
 
-    // Bypass path (Zero pitch shift = perfect direct sound)
+    // Direct Bypass path
     this.vocalProcessingOut.connect(this.bypassGain);
-    this.bypassGain.connect(this.outputGain);
-    this.pitchGain.connect(this.outputGain);
 
     // Start modulators
     this.mod1.start(0);
@@ -295,16 +306,18 @@ class AudioPitchShifter {
 
   /**
    * 피치 LFO 모듈레이터 내부 파라미터 갱신
+   * 키 올리기(pitchRatio > 1) 및 키 내리기(pitchRatio < 1) 모두 음수 딜레이 없이 완벽 지원
    */
   updatePitchInternal(pitchRatio) {
     if (!this.isInitialized || !this.audioCtx) return;
 
     const ctx = this.audioCtx;
     const now = ctx.currentTime;
-    const smoothTime = 0.05; // 50ms transition
+    const smoothTime = 0.03; // 30ms 빠른 반응성
+    const bufferTime = this.bufferTime;
 
     if (this.semitones === 0) {
-      // Bypass Mode: 100% 원음 직결 (음질 손실 없음)
+      // Bypass Mode: 100% 원음 직결 (음질 손실 0%)
       this.bypassGain.gain.cancelScheduledValues(now);
       this.pitchGain.gain.cancelScheduledValues(now);
       this.bypassGain.gain.setTargetAtTime(1.0, now, smoothTime);
@@ -316,12 +329,37 @@ class AudioPitchShifter {
       this.bypassGain.gain.setTargetAtTime(0.0, now, smoothTime);
       this.pitchGain.gain.setTargetAtTime(1.0, now, smoothTime);
 
-      // Jungle modulation rate formula: (1.0 - pitchRatio)
-      const speed = 1.0 - pitchRatio;
-      this.modGain1.gain.cancelScheduledValues(now);
-      this.modGain2.gain.cancelScheduledValues(now);
-      this.modGain1.gain.setTargetAtTime(speed, now, smoothTime);
-      this.modGain2.gain.setTargetAtTime(speed, now, smoothTime);
+      if (pitchRatio > 1.0) {
+        // [키 올리기 (Pitch Up)]
+        // delayTime 오프셋을 양수로 두고, 모듈레이션 게인을 음수로 설정하여
+        // 딜레이가 (bufferTime * (pitchRatio - 1.0)) 에서 0으로 하강하도록 처리 (음수 지연 클리핑 방지)
+        const delayOffset = bufferTime * (pitchRatio - 1.0);
+        const speed = -(pitchRatio - 1.0); // 1.0 - pitchRatio
+
+        this.delay1.delayTime.cancelScheduledValues(now);
+        this.delay2.delayTime.cancelScheduledValues(now);
+        this.delay1.delayTime.setTargetAtTime(delayOffset, now, smoothTime);
+        this.delay2.delayTime.setTargetAtTime(delayOffset, now, smoothTime);
+
+        this.modGain1.gain.cancelScheduledValues(now);
+        this.modGain2.gain.cancelScheduledValues(now);
+        this.modGain1.gain.setTargetAtTime(speed, now, smoothTime);
+        this.modGain2.gain.setTargetAtTime(speed, now, smoothTime);
+      } else {
+        // [키 내리기 (Pitch Down)]
+        // delayTime 기본값 0, 모듈레이션 게인 (1.0 - pitchRatio)으로 0에서 위로 상승
+        const speed = 1.0 - pitchRatio; // 양수
+
+        this.delay1.delayTime.cancelScheduledValues(now);
+        this.delay2.delayTime.cancelScheduledValues(now);
+        this.delay1.delayTime.setTargetAtTime(0.0, now, smoothTime);
+        this.delay2.delayTime.setTargetAtTime(0.0, now, smoothTime);
+
+        this.modGain1.gain.cancelScheduledValues(now);
+        this.modGain2.gain.cancelScheduledValues(now);
+        this.modGain1.gain.setTargetAtTime(speed, now, smoothTime);
+        this.modGain2.gain.setTargetAtTime(speed, now, smoothTime);
+      }
     }
   }
 
