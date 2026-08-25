@@ -1,30 +1,242 @@
 /**
- * YouTube Karaoke Pitch Shifter Engine
- * Quad-Stage (4-Phase Overlapped Hann) High-Precision Real-time Pitch Shifter
- * Zero-latency, perfectly synchronous, artifact-free DSP engine.
+ * Phase Vocoder AudioWorklet Source Code
+ * 고품질 STFT (Short-Time Fourier Transform) 기반 실시간 주파수 피치 시프터
  */
 
+const PHASE_VOCODER_WORKLET_CODE = `
+class PhaseVocoderProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.fftSize = 2048;
+    this.hopSize = 512; // 75% overlap
+    this.pitchRatio = 1.0;
+    this.sampleRate = 44100;
+
+    // FFT Tables
+    this.cosTable = new Float32Array(this.fftSize / 2);
+    this.sinTable = new Float32Array(this.fftSize / 2);
+    for (let i = 0; i < this.fftSize / 2; i++) {
+      this.cosTable[i] = Math.cos((2.0 * Math.PI * i) / this.fftSize);
+      this.sinTable[i] = Math.sin((2.0 * Math.PI * i) / this.fftSize);
+    }
+
+    // Bit reversal table
+    this.bitRev = new Int32Array(this.fftSize);
+    for (let i = 0; i < this.fftSize; i++) {
+      let rev = 0;
+      for (let j = 0; j < 11; j++) { // log2(2048) = 11
+        rev = (rev << 1) | ((i >> j) & 1);
+      }
+      this.bitRev[i] = rev;
+    }
+
+    // Hann window
+    this.window = new Float32Array(this.fftSize);
+    let winSum = 0;
+    for (let i = 0; i < this.fftSize; i++) {
+      this.window[i] = 0.5 * (1.0 - Math.cos((2.0 * Math.PI * i) / this.fftSize));
+      winSum += this.window[i];
+    }
+    // Normalize window for 75% overlap
+    const winNorm = (2.0 / 3.0) / (this.fftSize / this.hopSize);
+
+    // Channel buffers (Stereo: L, R)
+    this.channels = [this.createChannelState(), this.createChannelState()];
+
+    this.port.onmessage = (e) => {
+      if (e.data.pitchRatio !== undefined) {
+        this.pitchRatio = e.data.pitchRatio;
+      }
+      if (e.data.sampleRate !== undefined) {
+        this.sampleRate = e.data.sampleRate;
+      }
+    };
+  }
+
+  createChannelState() {
+    const N = this.fftSize;
+    return {
+      inFifo: new Float32Array(N),
+      outFifo: new Float32Array(N),
+      inPos: 0,
+      outPos: 0,
+      lastPhase: new Float32Array(N / 2 + 1),
+      sumPhase: new Float32Array(N / 2 + 1),
+      re: new Float32Array(N),
+      im: new Float32Array(N),
+      synRe: new Float32Array(N),
+      synIm: new Float32Array(N)
+    };
+  }
+
+  fft(re, im, inverse) {
+    const n = this.fftSize;
+    // Bit reversal
+    for (let i = 0; i < n; i++) {
+      const j = this.bitRev[i];
+      if (j > i) {
+        let temp = re[i]; re[i] = re[j]; re[j] = temp;
+        temp = im[i]; im[i] = im[j]; im[j] = temp;
+      }
+    }
+
+    // Cooley-Tukey Radix-2
+    for (let len = 2; len <= n; len <<= 1) {
+      const half = len >> 1;
+      const step = n / len;
+      for (let i = 0; i < n; i += len) {
+        for (let j = 0; j < half; j++) {
+          const k = j * step;
+          const c = this.cosTable[k];
+          const s = inverse ? -this.sinTable[k] : this.sinTable[k];
+          const tr = re[i + j + half] * c - im[i + j + half] * s;
+          const ti = re[i + j + half] * s + im[i + j + half] * c;
+          re[i + j + half] = re[i + j] - tr;
+          im[i + j + half] = im[i + j] - ti;
+          re[i + j] += tr;
+          im[i + j] += ti;
+        }
+      }
+    }
+
+    if (inverse) {
+      for (let i = 0; i < n; i++) {
+        re[i] /= n;
+        im[i] /= n;
+      }
+    }
+  }
+
+  processChannel(inData, outData, state) {
+    const N = this.fftSize;
+    const H = this.hopSize;
+    const halfN = N / 2;
+    const pitch = this.pitchRatio;
+    const expPhaseAdv = (2.0 * Math.PI * H) / N;
+
+    for (let i = 0; i < inData.length; i++) {
+      state.inFifo[state.inPos++] = inData[i];
+      outData[i] = state.outFifo[state.outPos];
+      state.outFifo[state.outPos] = 0; // Clear after consumption
+      state.outPos = (state.outPos + 1) % N;
+
+      // When we have hopSize new samples, run STFT Phase Vocoder
+      if (state.inPos >= H) {
+        state.inPos = 0;
+
+        // 1. Windowing into FFT buffer
+        for (let k = 0; k < N; k++) {
+          const idx = (state.outPos + k) % N;
+          state.re[k] = state.inFifo[k] * this.window[k];
+          state.im[k] = 0;
+        }
+
+        // Shift inFifo by H
+        state.inFifo.copyWithin(0, H, N);
+
+        // 2. Forward FFT
+        this.fft(state.re, state.im, false);
+
+        // 3. Phase Vocoder Processing
+        state.synRe.fill(0);
+        state.synIm.fill(0);
+
+        for (let k = 0; k <= halfN; k++) {
+          const real = state.re[k];
+          const imag = state.im[k];
+          const mag = 2.0 * Math.sqrt(real * real + imag * imag);
+          const phase = Math.atan2(imag, real);
+
+          // Phase difference
+          let dPhase = phase - state.lastPhase[k];
+          state.lastPhase[k] = phase;
+
+          // Expected phase advance
+          dPhase -= k * expPhaseAdv;
+
+          // Unwrap to [-PI, +PI]
+          let qpd = Math.floor(dPhase / (2.0 * Math.PI) + 0.5);
+          dPhase -= 2.0 * Math.PI * qpd;
+
+          // Instantaneous frequency
+          const trueFreq = k + (dPhase / expPhaseAdv);
+
+          // Pitch shift target bin
+          const newBin = Math.round(k * pitch);
+          if (newBin <= halfN && newBin >= 0) {
+            // Accumulate synthesis phase
+            state.sumPhase[newBin] += trueFreq * pitch * expPhaseAdv;
+            const synPhase = state.sumPhase[newBin];
+
+            state.synRe[newBin] += mag * Math.cos(synPhase);
+            state.synIm[newBin] += mag * Math.sin(synPhase);
+          }
+        }
+
+        // Mirror complex spectrum for IFFT
+        for (let k = 1; k < halfN; k++) {
+          state.synRe[N - k] = state.synRe[k];
+          state.synIm[N - k] = -state.synIm[k];
+        }
+        state.synIm[0] = 0;
+        state.synIm[halfN] = 0;
+
+        // 4. Inverse FFT
+        this.fft(state.synRe, state.synIm, true);
+
+        // 5. Overlap-Add with Synthesis Window (Normalized for 75% overlap Hann window)
+        const normFactor = 2.0 / 3.0;
+        for (let k = 0; k < N; k++) {
+          const outIdx = (state.outPos + k) % N;
+          state.outFifo[outIdx] += state.synRe[k] * this.window[k] * normFactor;
+        }
+      }
+    }
+  }
+
+  process(inputs, outputs) {
+    const input = inputs[0];
+    const output = outputs[0];
+
+    if (!input || input.length === 0 || !output || output.length === 0) return true;
+
+    const numChannels = Math.min(input.length, output.length, 2);
+
+    // Bypass mode when pitchRatio is 1.0 (Bit-perfect fast copy)
+    if (Math.abs(this.pitchRatio - 1.0) < 1e-4) {
+      for (let c = 0; c < numChannels; c++) {
+        output[c].set(input[c]);
+      }
+      return true;
+    }
+
+    for (let c = 0; c < numChannels; c++) {
+      this.processChannel(input[c], output[c], this.channels[c]);
+    }
+
+    return true;
+  }
+}
+
+registerProcessor('phase-vocoder-processor', PhaseVocoderProcessor);
+`;
+
+/**
+ * AudioPitchShifter Master Engine
+ */
 class AudioPitchShifter {
   constructor() {
     this.audioCtx = null;
     this.videoElement = null;
     this.sourceNode = null;
     
-    // Master Gains & Limiter
+    // Master Nodes
     this.inputGain = null;
     this.outputGain = null;
     this.bypassGain = null;
     this.pitchGain = null;
+    this.workletNode = null;
     this.compressor = null;
-    
-    // Quad-Stage Pitch Shifter Nodes (4 delay paths with 90 deg phase offsets)
-    this.numStages = 4;
-    this.delays = [];
-    this.delayGains = [];
-    this.modSources = [];
-    this.fadeSources = [];
-    this.modGains = [];
-    this.bufferTime = 0.080; // 80ms buffer (최적의 자연스러운 피치 변환 및 잡음 제거)
     
     // Vocal Cut Nodes
     this.vocalCutEnabled = false;
@@ -38,12 +250,13 @@ class AudioPitchShifter {
     this.vocalProcessingOut = null;
     
     // State
-    this.enabled = true; // 마스터 활성화 여부
-    this.semitones = 0; // -12 to +12
-    this.tempo = 1.0; // 0.5 to 1.5
-    this.volume = 1.0; // 0.0 to 2.5
+    this.enabled = true;
+    this.semitones = 0;
+    this.tempo = 1.0;
+    this.volume = 1.0;
     this.isInitialized = false;
     this.isConnected = false;
+    this.isWorkletLoaded = false;
   }
 
   /**
@@ -88,6 +301,9 @@ class AudioPitchShifter {
         this.sourceNode = videoElement.__pitchSourceNode;
       }
 
+      // AudioWorklet 모듈 로드
+      await this.loadAudioWorklet();
+
       this.setupAudioGraph();
       this.isInitialized = true;
       this.isConnected = true;
@@ -98,11 +314,27 @@ class AudioPitchShifter {
       this.setTempo(this.tempo);
       this.setVocalCut(this.vocalCutEnabled);
 
-      console.log('[Karaoke Shifter] Quad-Stage Pitch Shifter Graph Initialized Successfully');
+      console.log('[Karaoke Shifter] Phase Vocoder AudioWorklet Initialized Successfully');
       return true;
     } catch (err) {
       console.error('[Karaoke Shifter] Init failed:', err);
       return false;
+    }
+  }
+
+  /**
+   * 인라인 Blob URL로 AudioWorklet 로드 (CORS/권한 이슈 없음)
+   */
+  async loadAudioWorklet() {
+    if (this.isWorkletLoaded) return;
+    try {
+      const blob = new Blob([PHASE_VOCODER_WORKLET_CODE], { type: 'application/javascript' });
+      const workletUrl = URL.createObjectURL(blob);
+      await this.audioCtx.audioWorklet.addModule(workletUrl);
+      this.isWorkletLoaded = true;
+      URL.revokeObjectURL(workletUrl);
+    } catch (e) {
+      console.error('[Karaoke Shifter] AudioWorklet load failed:', e);
     }
   }
 
@@ -112,13 +344,12 @@ class AudioPitchShifter {
   setupAudioGraph() {
     const ctx = this.audioCtx;
 
-    // 1. Master Gains & Transparent Dynamics Compressor
+    // 1. Master Gains & Transparent Limiter
     this.inputGain = ctx.createGain();
     this.outputGain = ctx.createGain();
     this.bypassGain = ctx.createGain();
     this.pitchGain = ctx.createGain();
 
-    // 부드러운 다이내믹스 컴프레서 (피크 및 볼륨 변동 방지)
     this.compressor = ctx.createDynamicsCompressor();
     this.compressor.threshold.setValueAtTime(-6, ctx.currentTime);
     this.compressor.knee.setValueAtTime(12, ctx.currentTime);
@@ -132,14 +363,29 @@ class AudioPitchShifter {
     // 2. Vocal Cut (Center Cancellation) 서브그래프
     this.setupVocalCutGraph();
 
-    // 3. Quad-Stage Pitch Shifter 서브그래프
-    this.setupQuadPitchGraph();
+    // 3. Phase Vocoder Worklet Node 연결
+    try {
+      this.workletNode = new AudioWorkletNode(ctx, 'phase-vocoder-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [2]
+      });
+      this.vocalProcessingOut.connect(this.workletNode);
+      this.workletNode.connect(this.pitchGain);
+    } catch (e) {
+      console.warn('[Karaoke Shifter] AudioWorkletNode init fallback:', e);
+    }
 
-    // 4. Sum -> Compressor -> Master Output -> Destination
+    // Direct Bypass path
+    this.vocalProcessingOut.connect(this.bypassGain);
+
+    // Sum -> Compressor -> Master Output -> Destination
     this.bypassGain.connect(this.compressor);
     this.pitchGain.connect(this.compressor);
     this.compressor.connect(this.outputGain);
     this.outputGain.connect(ctx.destination);
+
+    this.updatePitchInternal(1.0);
   }
 
   /**
@@ -161,9 +407,8 @@ class AudioPitchShifter {
     this.splitterNode = ctx.createChannelSplitter(2);
     this.mergerNode = ctx.createChannelMerger(2);
     this.inverterNode = ctx.createGain();
-    this.inverterNode.gain.value = -1; // 위상 반전
+    this.inverterNode.gain.value = -1;
 
-    // 저음 보존용 로우패스 필터
     this.bassFilterNode = ctx.createBiquadFilter();
     this.bassFilterNode.type = 'lowpass';
     this.bassFilterNode.frequency.value = 140;
@@ -173,7 +418,6 @@ class AudioPitchShifter {
     this.inputGain.connect(this.vocalProcessingIn);
     this.vocalProcessingIn.connect(this.splitterNode);
 
-    // (L - R) mono difference
     this.splitterNode.connect(leftGain, 0);
     this.splitterNode.connect(this.inverterNode, 1);
     this.inverterNode.connect(leftGain);
@@ -181,7 +425,6 @@ class AudioPitchShifter {
     leftGain.connect(this.mergerNode, 0, 0);
     leftGain.connect(this.mergerNode, 0, 1);
 
-    // Add bass back into merger
     this.vocalProcessingIn.connect(this.bassFilterNode);
     this.bassFilterNode.connect(this.mergerNode, 0, 0);
     this.bassFilterNode.connect(this.mergerNode, 0, 1);
@@ -189,96 +432,9 @@ class AudioPitchShifter {
     this.mergerNode.connect(this.vocalCutGain);
     this.vocalCutGain.connect(this.vocalProcessingOut);
 
-    // 초기 상태
     this.directPassGain.gain.value = 1.0;
     this.vocalCutGain.gain.value = 0.0;
     this.vocalProcessingIn.gain.value = 0.0;
-  }
-
-  /**
-   * Quad-Stage 4-Phase Overlapped Hann Pitch Shifter
-   * 4개 경로의 90도 위상차 오버랩-애드로 지연시간 0, 속도 왜곡 0, 클릭 잡음 0 보장
-   */
-  setupQuadPitchGraph() {
-    const ctx = this.audioCtx;
-    const bufferTime = this.bufferTime;
-    const numStages = this.numStages;
-    const sampleRate = ctx.sampleRate;
-    const length = Math.floor(bufferTime * sampleRate);
-
-    this.delays = [];
-    this.delayGains = [];
-    this.modSources = [];
-    this.fadeSources = [];
-    this.modGains = [];
-
-    // Summing node for quad paths
-    const quadSumGain = ctx.createGain();
-    // 4개 경로 합산 게인 보정 (Hann 윈도우 합이 2.0이므로 0.5 곱하여 1.0으로 정규화)
-    quadSumGain.gain.value = 0.5;
-
-    for (let s = 0; s < numStages; s++) {
-      const phaseOffset = s / numStages; // 0.0, 0.25, 0.50, 0.75
-
-      // Delay Node
-      const delay = ctx.createDelay(1.0);
-      const delayGain = ctx.createGain();
-
-      // Buffer creation
-      const modBuffer = ctx.createBuffer(1, length, sampleRate);
-      const fadeBuffer = ctx.createBuffer(1, length, sampleRate);
-      const modData = modBuffer.getChannelData(0);
-      const fadeData = fadeBuffer.getChannelData(0);
-
-      for (let i = 0; i < length; i++) {
-        const t = i / length; // 0 to 1
-        const pt = (t + phaseOffset) % 1.0;
-
-        // Linear delay ramp
-        modData[i] = pt * bufferTime;
-
-        // Hann Window: 0.5 * (1 - cos(2*pi*pt))
-        // pt=0일 때 fade=0이므로 딜레이가 0으로 점프하는 순간 게인이 완전히 0이 되어 잡음이 100% 제거됨!
-        fadeData[i] = 0.5 * (1.0 - Math.cos(2.0 * Math.PI * pt));
-      }
-
-      // Loop Sources
-      const modSource = ctx.createBufferSource();
-      const fadeSource = ctx.createBufferSource();
-      modSource.buffer = modBuffer;
-      fadeSource.buffer = fadeBuffer;
-      modSource.loop = true;
-      fadeSource.loop = true;
-
-      const modGain = ctx.createGain();
-      modSource.connect(modGain);
-      modGain.connect(delay.delayTime);
-
-      fadeSource.connect(delayGain.gain);
-
-      // Connect audio input -> delay -> delayGain -> quadSumGain
-      this.vocalProcessingOut.connect(delay);
-      delay.connect(delayGain);
-      delayGain.connect(quadSumGain);
-
-      // Start LFO
-      modSource.start(0);
-      fadeSource.start(0);
-
-      this.delays.push(delay);
-      this.delayGains.push(delayGain);
-      this.modSources.push(modSource);
-      this.fadeSources.push(fadeSource);
-      this.modGains.push(modGain);
-    }
-
-    // Connect quadSumGain -> pitchGain
-    quadSumGain.connect(this.pitchGain);
-
-    // Direct Bypass path
-    this.vocalProcessingOut.connect(this.bypassGain);
-
-    this.updatePitchInternal(1.0);
   }
 
   /**
@@ -297,15 +453,21 @@ class AudioPitchShifter {
   }
 
   /**
-   * 피치 LFO 모듈레이터 내부 파라미터 갱신
+   * 피치 내부 파라미터 갱신 (Phase Vocoder)
    */
   updatePitchInternal(pitchRatio) {
     if (!this.isInitialized || !this.audioCtx) return;
 
     const ctx = this.audioCtx;
     const now = ctx.currentTime;
-    const smoothTime = 0.03; // 30ms 부드러운 전환
-    const bufferTime = this.bufferTime;
+    const smoothTime = 0.03;
+
+    if (this.workletNode && this.workletNode.port) {
+      this.workletNode.port.postMessage({
+        pitchRatio: pitchRatio,
+        sampleRate: ctx.sampleRate
+      });
+    }
 
     if (this.semitones === 0 || !this.enabled) {
       // Bypass Mode: 100% 원음 직결 (음질 손실 0%, 레이턴시 0ms)
@@ -314,38 +476,11 @@ class AudioPitchShifter {
       this.bypassGain.gain.setTargetAtTime(1.0, now, smoothTime);
       this.pitchGain.gain.setTargetAtTime(0.0, now, smoothTime);
     } else {
-      // Pitch Shifting Mode
+      // Phase Vocoder Mode
       this.bypassGain.gain.cancelScheduledValues(now);
       this.pitchGain.gain.cancelScheduledValues(now);
       this.bypassGain.gain.setTargetAtTime(0.0, now, smoothTime);
       this.pitchGain.gain.setTargetAtTime(1.0, now, smoothTime);
-
-      if (pitchRatio > 1.0) {
-        // [키 올리기 (Pitch Up)]
-        // 양수 딜레이 오프셋에서 하강
-        const delayOffset = bufferTime * (pitchRatio - 1.0);
-        const speed = -(pitchRatio - 1.0);
-
-        for (let s = 0; s < this.numStages; s++) {
-          this.delays[s].delayTime.cancelScheduledValues(now);
-          this.delays[s].delayTime.setTargetAtTime(delayOffset, now, smoothTime);
-
-          this.modGains[s].gain.cancelScheduledValues(now);
-          this.modGains[s].gain.setTargetAtTime(speed, now, smoothTime);
-        }
-      } else {
-        // [키 내리기 (Pitch Down)]
-        // 0초 오프셋에서 상승
-        const speed = 1.0 - pitchRatio;
-
-        for (let s = 0; s < this.numStages; s++) {
-          this.delays[s].delayTime.cancelScheduledValues(now);
-          this.delays[s].delayTime.setTargetAtTime(0.0, now, smoothTime);
-
-          this.modGains[s].gain.cancelScheduledValues(now);
-          this.modGains[s].gain.setTargetAtTime(speed, now, smoothTime);
-        }
-      }
     }
   }
 
@@ -408,7 +543,6 @@ class AudioPitchShifter {
     const smooth = 0.03;
 
     if (!this.enabled) {
-      // OFF: 완전 바이패스 모드 (원음 100% 직결 및 원래 속도 복구)
       this.bypassGain.gain.setTargetAtTime(1.0, now, smooth);
       this.pitchGain.gain.setTargetAtTime(0.0, now, smooth);
       this.directPassGain.gain.setTargetAtTime(1.0, now, smooth);
@@ -417,7 +551,6 @@ class AudioPitchShifter {
         this.videoElement.playbackRate = 1.0;
       }
     } else {
-      // ON: 현재 피치, 템포, 보컬컷 설정 복구
       this.setPitch(this.semitones);
       this.setTempo(this.tempo);
       this.setVolume(this.volume);
