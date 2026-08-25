@@ -2,6 +2,18 @@
  * YouTube Karaoke In-Player UI & Controller
  */
 
+const DEFAULT_KARAOKE_CONFIG = {
+  enabled: true,
+  shortcuts: {
+    pitchDown: { key: '[', code: 'BracketLeft', altKey: false, ctrlKey: false, shiftKey: false, label: '[' },
+    pitchUp: { key: ']', code: 'BracketRight', altKey: false, ctrlKey: false, shiftKey: false, label: ']' },
+    pitchReset: { key: '0', code: 'Digit0', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + 0' },
+    toggleUI: { key: 'm', code: 'KeyM', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + M' },
+    toggleVocalCut: { key: 'v', code: 'KeyV', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + V' },
+    togglePower: { key: 'p', code: 'KeyP', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + P' }
+  }
+};
+
 class KaraokeUI {
   constructor(shifter) {
     this.shifter = shifter;
@@ -14,6 +26,7 @@ class KaraokeUI {
     this.osdTimer = null;
     this.isMinimized = false;
     this.isVisible = true;
+    this.config = JSON.parse(JSON.stringify(DEFAULT_KARAOKE_CONFIG));
 
     // UI elements references
     this.pitchValueEl = null;
@@ -22,12 +35,14 @@ class KaraokeUI {
     this.volumeSliderEl = null;
     this.volumeValEl = null;
     this.vocalCutCheckEl = null;
+    this.powerBtnEl = null;
   }
 
   /**
    * UI 초기화 및 DOM 주입
    */
-  init() {
+  async init() {
+    await this.loadConfig();
     this.findPlayerContainer();
     if (!this.container) {
       setTimeout(() => this.init(), 1000);
@@ -41,7 +56,40 @@ class KaraokeUI {
     this.bindShortcuts();
     this.updateUI();
 
+    // 초기 활성화 상태 동기화
+    this.setEnabled(this.config.enabled, false);
+
     console.log('[Karaoke UI] UI Initialized Successfully');
+  }
+
+  /**
+   * 사용자 설정 및 단축키 로드
+   */
+  async loadConfig() {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.get(['karaokeConfig'], (res) => {
+          if (res && res.karaokeConfig) {
+            this.config = Object.assign({}, DEFAULT_KARAOKE_CONFIG, res.karaokeConfig);
+            if (!this.config.shortcuts) this.config.shortcuts = DEFAULT_KARAOKE_CONFIG.shortcuts;
+          }
+          resolve(this.config);
+        });
+      } catch (e) {
+        resolve(this.config);
+      }
+    });
+  }
+
+  /**
+   * 설정 변경 반영
+   */
+  updateConfig(newConfig) {
+    if (!newConfig) return;
+    this.config = Object.assign({}, this.config, newConfig);
+    if (newConfig.enabled !== undefined) {
+      this.setEnabled(newConfig.enabled, false);
+    }
   }
 
   /**
@@ -70,8 +118,9 @@ class KaraokeUI {
           <span>노래방 키 조절기</span>
         </div>
         <div class="yk-header-controls">
+          <button class="yk-icon-btn yk-power-toggle" id="yk-btn-power" title="기능 ON/OFF">⏻</button>
           <button class="yk-icon-btn" id="yk-btn-minimize" title="최소화/펼치기">−</button>
-          <button class="yk-icon-btn" id="yk-btn-close" title="숨기기 (Alt+M)">✕</button>
+          <button class="yk-icon-btn" id="yk-btn-close" title="숨기기">✕</button>
         </div>
       </div>
 
@@ -87,13 +136,13 @@ class KaraokeUI {
 
         <!-- Main Pitch Buttons -->
         <div class="yk-btn-group-main">
-          <button class="yk-btn yk-btn-down" id="yk-btn-down" title="반음 내리기 ([)">
+          <button class="yk-btn yk-btn-down" id="yk-btn-down" title="반음 내리기">
             <span>♭</span> -1 키
           </button>
-          <button class="yk-btn yk-btn-reset" id="yk-btn-reset" title="원곡 키 (\)">
+          <button class="yk-btn yk-btn-reset" id="yk-btn-reset" title="원곡 키">
             원키 (0)
           </button>
-          <button class="yk-btn yk-btn-up" id="yk-btn-up" title="반음 올리기 (])">
+          <button class="yk-btn yk-btn-up" id="yk-btn-up" title="반음 올리기">
             <span>♯</span> +1 키
           </button>
         </div>
@@ -136,8 +185,8 @@ class KaraokeUI {
       </div>
 
       <div class="yk-panel-footer">
-        <span>단축키: <span class="yk-kbd">[</span> <span class="yk-kbd">]</span> <span class="yk-kbd">\\</span></span>
-        <span>토글: <span class="yk-kbd">Alt+M</span></span>
+        <span id="yk-footer-shortcuts">단축키: <span class="yk-kbd">[</span> <span class="yk-kbd">]</span> <span class="yk-kbd">0</span></span>
+        <span id="yk-footer-power-btn" style="cursor:pointer; color: #05d9e8;">ON</span>
       </div>
     `;
 
@@ -152,6 +201,7 @@ class KaraokeUI {
     this.volumeSliderEl = overlay.querySelector('#yk-slider-volume');
     this.volumeValEl = overlay.querySelector('#yk-val-volume');
     this.vocalCutCheckEl = overlay.querySelector('#yk-chk-vocal-cut');
+    this.powerBtnEl = overlay.querySelector('#yk-btn-power');
   }
 
   /**
@@ -180,7 +230,7 @@ class KaraokeUI {
     const btn = document.createElement('button');
     btn.id = 'yk-mini-bar-btn';
     btn.className = 'ytp-button yk-ytp-btn';
-    btn.title = '노래방 키 조절기 (Alt+M)';
+    btn.title = '노래방 키 조절기';
     btn.innerHTML = `
       <svg height="100%" version="1.1" viewBox="0 0 36 36" width="100%">
         <path d="M12 14c0 3.31 2.69 6 6 6s6-2.69 6-6V8c0-3.31-2.69-6-6-6s-6 2.69-6 6v6z" fill="#05D9E8"/>
@@ -237,7 +287,7 @@ class KaraokeUI {
     header.addEventListener('pointerup', stopDrag);
     header.addEventListener('pointercancel', stopDrag);
 
-    // 2. Minimize & Close
+    // 2. Minimize & Close & Power Toggle
     this.overlayEl.querySelector('#yk-btn-minimize').addEventListener('click', () => {
       this.isMinimized = !this.isMinimized;
       this.overlayEl.classList.toggle('yk-minimized', this.isMinimized);
@@ -245,6 +295,11 @@ class KaraokeUI {
 
     this.overlayEl.querySelector('#yk-btn-close').addEventListener('click', () => {
       this.toggleVisibility(false);
+    });
+
+    this.powerBtnEl.addEventListener('click', () => {
+      const newEnabled = !this.shifter.enabled;
+      this.setEnabled(newEnabled, true);
     });
 
     // 3. Pitch Buttons
@@ -291,26 +346,64 @@ class KaraokeUI {
   }
 
   /**
-   * 단축키 바인딩
+   * 단축키 매칭 헬퍼
+   */
+  isShortcutMatch(e, binding) {
+    if (!binding) return false;
+    const altMatch = !!binding.altKey === e.altKey;
+    const ctrlMatch = !!binding.ctrlKey === e.ctrlKey;
+    const shiftMatch = !!binding.shiftKey === e.shiftKey;
+    if (!altMatch || !ctrlMatch || !shiftMatch) return false;
+
+    if (binding.code && e.code && binding.code === e.code) return true;
+    if (binding.key && e.key && binding.key.toLowerCase() === e.key.toLowerCase()) return true;
+    return false;
+  }
+
+  /**
+   * 사용자 지정 단축키 바인딩
    */
   bindShortcuts() {
     window.addEventListener('keydown', (e) => {
       // Input/Textarea 입력 중이면 단축키 무시
       if (e.target.matches('input, textarea, [contenteditable="true"]')) return;
 
-      if (e.key === '[' || (e.altKey && (e.key === ',' || e.code === 'Comma'))) {
+      const s = this.config.shortcuts;
+      if (!s) return;
+
+      // 1. 전원 토글 (기능 꺼져 있어도 작동해야 함)
+      if (this.isShortcutMatch(e, s.togglePower)) {
+        e.preventDefault();
+        const newEnabled = !this.shifter.enabled;
+        this.setEnabled(newEnabled, true);
+        return;
+      }
+
+      // 기능이 꺼져 있으면 다른 단축키는 작동하지 않음
+      if (!this.shifter.enabled) return;
+
+      // 2. 피치 내리기
+      if (this.isShortcutMatch(e, s.pitchDown)) {
         e.preventDefault();
         this.changePitch(-1);
-      } else if (e.key === ']' || (e.altKey && (e.key === '.' || e.code === 'Period'))) {
+      }
+      // 3. 피치 올리기
+      else if (this.isShortcutMatch(e, s.pitchUp)) {
         e.preventDefault();
         this.changePitch(1);
-      } else if (e.key === '\\' || (e.altKey && (e.key === '/' || e.key === '0' || e.code === 'Slash' || e.code === 'Digit0'))) {
+      }
+      // 4. 원키 리셋
+      else if (this.isShortcutMatch(e, s.pitchReset)) {
         e.preventDefault();
         this.setPitch(0);
-      } else if (e.altKey && (e.key === 'm' || e.key === 'M' || e.code === 'KeyM')) {
+      }
+      // 5. UI 토글
+      else if (this.isShortcutMatch(e, s.toggleUI)) {
         e.preventDefault();
         this.toggleVisibility();
-      } else if (e.altKey && (e.key === 'v' || e.key === 'V' || e.code === 'KeyV')) {
+      }
+      // 6. 보컬 컷 토글
+      else if (this.isShortcutMatch(e, s.toggleVocalCut)) {
         e.preventDefault();
         const newState = !this.shifter.vocalCutEnabled;
         this.vocalCutCheckEl.checked = newState;
@@ -321,9 +414,42 @@ class KaraokeUI {
   }
 
   /**
+   * 마스터 활성화 / 비활성화 처리
+   */
+  setEnabled(enabled, notify = true) {
+    this.shifter.setEnabled(enabled);
+    this.config.enabled = enabled;
+
+    if (this.overlayEl) {
+      this.overlayEl.classList.toggle('yk-power-off', !enabled);
+      if (this.powerBtnEl) {
+        this.powerBtnEl.style.color = enabled ? '#05d9e8' : '#777';
+      }
+      const footerPower = this.overlayEl.querySelector('#yk-footer-power-btn');
+      if (footerPower) {
+        footerPower.innerText = enabled ? 'ON' : 'OFF';
+        footerPower.style.color = enabled ? '#05d9e8' : '#777';
+      }
+    }
+
+    if (notify) {
+      this.showOSD(enabled ? '⚡ 노래방 키 조절기 ON' : '💤 노래방 키 조절기 OFF');
+      try {
+        chrome.storage.local.set({
+          karaokeConfig: Object.assign({}, this.config, { enabled })
+        });
+      } catch (e) {}
+      this.notifyStateChange();
+    }
+
+    this.updateUI();
+  }
+
+  /**
    * 상대값으로 피치 변경
    */
   changePitch(delta) {
+    if (!this.shifter.enabled) return;
     const current = this.shifter.semitones;
     this.setPitch(current + delta);
   }
@@ -332,6 +458,7 @@ class KaraokeUI {
    * 절대값으로 피치 설정
    */
   setPitch(val) {
+    if (!this.shifter.enabled) return;
     const result = this.shifter.setPitch(val);
     this.updateUI();
     this.showOSDPitch(result);
@@ -365,9 +492,15 @@ class KaraokeUI {
     // Mini Badge update
     const miniBadge = document.getElementById('yk-mini-badge');
     if (miniBadge) {
-      miniBadge.innerText = semitones === 0 ? '0' : (semitones > 0 ? `+${semitones}` : `${semitones}`);
-      miniBadge.style.background = semitones > 0 ? '#05D9E8' : (semitones < 0 ? '#FF2A6D' : 'rgba(255,255,255,0.25)');
-      miniBadge.style.color = semitones === 0 ? '#fff' : '#12131C';
+      if (!state.enabled) {
+        miniBadge.innerText = 'OFF';
+        miniBadge.style.background = 'rgba(100,100,100,0.5)';
+        miniBadge.style.color = '#ccc';
+      } else {
+        miniBadge.innerText = semitones === 0 ? '0' : (semitones > 0 ? `+${semitones}` : `${semitones}`);
+        miniBadge.style.background = semitones > 0 ? '#05D9E8' : (semitones < 0 ? '#FF2A6D' : 'rgba(255,255,255,0.25)');
+        miniBadge.style.color = semitones === 0 ? '#fff' : '#12131C';
+      }
     }
 
     if (this.tempoSliderEl) this.tempoSliderEl.value = state.tempo;

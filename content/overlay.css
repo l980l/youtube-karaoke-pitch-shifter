@@ -46,6 +46,21 @@
   box-shadow: 0 8px 24px rgba(0,0,0,0.5), 0 0 15px rgba(255, 42, 109, 0.3);
 }
 
+#yk-karaoke-overlay.yk-power-off .yk-panel-body {
+  opacity: 0.35;
+  pointer-events: none;
+  filter: grayscale(0.8);
+}
+
+.yk-power-toggle {
+  color: var(--yk-secondary) !important;
+  font-weight: 800;
+}
+
+.yk-power-toggle:hover {
+  filter: drop-shadow(0 0 6px var(--yk-secondary));
+}
+
 #yk-karaoke-overlay.yk-minimized .yk-panel-body,
 #yk-karaoke-overlay.yk-minimized .yk-panel-footer {
   display: none;

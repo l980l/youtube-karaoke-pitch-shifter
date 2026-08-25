@@ -2,14 +2,36 @@
  * Popup Script - YouTube Karaoke Key Shifter
  */
 
+const DEFAULT_CONFIG = {
+  enabled: true,
+  shortcuts: {
+    pitchDown: { key: '[', code: 'BracketLeft', altKey: false, ctrlKey: false, shiftKey: false, label: '[' },
+    pitchUp: { key: ']', code: 'BracketRight', altKey: false, ctrlKey: false, shiftKey: false, label: ']' },
+    pitchReset: { key: '0', code: 'Digit0', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + 0' },
+    toggleUI: { key: 'm', code: 'KeyM', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + M' },
+    toggleVocalCut: { key: 'v', code: 'KeyV', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + V' },
+    togglePower: { key: 'p', code: 'KeyP', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + P' }
+  }
+};
+
 document.addEventListener('DOMContentLoaded', async () => {
   // Elements
+  const popupContainer = document.querySelector('.popup-container');
+  const chkMasterPower = document.getElementById('chk-master-power');
+  const powerStatusLabel = document.getElementById('power-status-label');
   const statusBadge = document.getElementById('status-badge');
   const statusText = document.getElementById('status-text');
   const notYtCard = document.getElementById('not-yt-card');
   const mainContent = document.getElementById('main-content');
   const btnOpenYt = document.getElementById('btn-open-yt');
 
+  // Tabs
+  const tabBtnRemote = document.getElementById('tab-btn-remote');
+  const tabBtnSettings = document.getElementById('tab-btn-settings');
+  const tabContentRemote = document.getElementById('tab-content-remote');
+  const tabContentSettings = document.getElementById('tab-content-settings');
+
+  // Pitch controls
   const pitchNumber = document.getElementById('pitch-number');
   const pitchTag = document.getElementById('pitch-tag');
   const pitchRangeSlider = document.getElementById('pitch-range-slider');
@@ -34,21 +56,190 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnResetVolume = document.getElementById('btn-reset-volume');
 
   const chkVocalCut = document.getElementById('chk-vocal-cut');
+  const btnResetShortcuts = document.getElementById('btn-reset-shortcuts');
 
   let activeTabId = null;
+  let currentConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+  let listeningAction = null;
 
-  // 1. 현재 활성 탭 확인
+  // 1. 설정 로드
+  await loadConfig();
+
+  // 2. 현재 활성 탭 확인
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url || (!tab.url.includes('youtube.com') && !tab.url.includes('youtu.be'))) {
     showNonYoutubeUI();
-    return;
+  } else {
+    activeTabId = tab.id;
+    setConnectedStatus(true);
+    syncState();
   }
 
-  activeTabId = tab.id;
-  setConnectedStatus(true);
-  syncState();
+  // 3. 탭 네비게이션
+  tabBtnRemote.addEventListener('click', () => {
+    tabBtnRemote.classList.add('active');
+    tabBtnSettings.classList.remove('active');
+    tabContentRemote.style.display = 'block';
+    tabContentSettings.style.display = 'none';
+  });
 
-  // 2. 메시지 전송 헬퍼
+  tabBtnSettings.addEventListener('click', () => {
+    tabBtnSettings.classList.add('active');
+    tabBtnRemote.classList.remove('active');
+    tabContentSettings.style.display = 'block';
+    tabContentRemote.style.display = 'none';
+  });
+
+  // 4. 마스터 ON/OFF 스위치
+  chkMasterPower.addEventListener('change', async (e) => {
+    currentConfig.enabled = e.target.checked;
+    await saveConfig();
+    updatePowerUI(currentConfig.enabled);
+    sendTabMessage({ action: 'SET_POWER', enabled: currentConfig.enabled });
+  });
+
+  function updatePowerUI(enabled) {
+    chkMasterPower.checked = enabled;
+    popupContainer.classList.toggle('power-off', !enabled);
+    powerStatusLabel.innerText = enabled ? '작동 중 (ON)' : '꺼짐 (OFF)';
+    powerStatusLabel.style.color = enabled ? 'var(--secondary)' : '#777';
+  }
+
+  // 5. 설정 저장 및 로드
+  async function loadConfig() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['karaokeConfig'], (res) => {
+        if (res && res.karaokeConfig) {
+          currentConfig = Object.assign({}, DEFAULT_CONFIG, res.karaokeConfig);
+          if (!currentConfig.shortcuts) currentConfig.shortcuts = DEFAULT_CONFIG.shortcuts;
+        }
+        updatePowerUI(currentConfig.enabled);
+        renderShortcutLabels();
+        resolve(currentConfig);
+      });
+    });
+  }
+
+  async function saveConfig() {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ karaokeConfig: currentConfig }, () => {
+        sendTabMessage({ action: 'UPDATE_CONFIG', config: currentConfig });
+        resolve();
+      });
+    });
+  }
+
+  // 6. 단축키 렌더링 및 키 바인딩 리스너
+  function renderShortcutLabels() {
+    const s = currentConfig.shortcuts;
+    for (const action in s) {
+      const btn = document.getElementById(`bind-${action}`);
+      if (btn) {
+        btn.innerText = s[action].label || s[action].key;
+      }
+    }
+
+    // 푸터 가이드 갱신
+    const kbdDown = document.getElementById('kbd-down');
+    const kbdUp = document.getElementById('kbd-up');
+    const kbdReset = document.getElementById('kbd-reset');
+    if (kbdDown && s.pitchDown) kbdDown.innerText = s.pitchDown.label;
+    if (kbdUp && s.pitchUp) kbdUp.innerText = s.pitchUp.label;
+    if (kbdReset && s.pitchReset) kbdReset.innerText = s.pitchReset.label;
+  }
+
+  // 단축키 캡처 버튼 클릭
+  document.querySelectorAll('.btn-key-bind').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      const action = btn.dataset.action;
+      if (listeningAction === action) {
+        cancelListening();
+        return;
+      }
+
+      cancelListening();
+      listeningAction = action;
+      btn.classList.add('listening');
+      btn.innerText = '키 누르기...';
+    });
+  });
+
+  function cancelListening() {
+    if (listeningAction) {
+      const prevBtn = document.getElementById(`bind-${listeningAction}`);
+      if (prevBtn) {
+        prevBtn.classList.remove('listening');
+        prevBtn.innerText = currentConfig.shortcuts[listeningAction].label;
+      }
+      listeningAction = null;
+    }
+  }
+
+  // 키보드 입력 감지하여 단축키 바인딩
+  window.addEventListener('keydown', async (e) => {
+    if (!listeningAction) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (e.key === 'Escape') {
+      cancelListening();
+      return;
+    }
+
+    // Modifier 키 단독 입력은 무시
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) return;
+
+    // 레이블 생성
+    const parts = [];
+    if (e.ctrlKey) parts.push('Ctrl');
+    if (e.altKey) parts.push('Alt');
+    if (e.shiftKey) parts.push('Shift');
+    if (e.metaKey) parts.push('Cmd');
+
+    let keyName = e.key.toUpperCase();
+    if (e.key === ' ') keyName = 'Space';
+    if (e.key === 'ArrowUp') keyName = 'Up';
+    if (e.key === 'ArrowDown') keyName = 'Down';
+    if (e.key === 'ArrowLeft') keyName = 'Left';
+    if (e.key === 'ArrowRight') keyName = 'Right';
+    if (e.key === '[') keyName = '[';
+    if (e.key === ']') keyName = ']';
+    if (e.key === '\\') keyName = '\\';
+
+    parts.push(keyName);
+    const label = parts.join(' + ');
+
+    currentConfig.shortcuts[listeningAction] = {
+      key: e.key.toLowerCase(),
+      code: e.code,
+      altKey: e.altKey,
+      ctrlKey: e.ctrlKey,
+      shiftKey: e.shiftKey,
+      label: label
+    };
+
+    const actionDone = listeningAction;
+    listeningAction = null;
+
+    const btn = document.getElementById(`bind-${actionDone}`);
+    if (btn) {
+      btn.classList.remove('listening');
+      btn.innerText = label;
+    }
+
+    await saveConfig();
+    renderShortcutLabels();
+  });
+
+  // 단축키 기본값 복원
+  btnResetShortcuts.addEventListener('click', async () => {
+    currentConfig.shortcuts = JSON.parse(JSON.stringify(DEFAULT_CONFIG.shortcuts));
+    await saveConfig();
+    renderShortcutLabels();
+  });
+
+  // 7. 메시지 전송 헬퍼
   function sendTabMessage(message, callback) {
     if (!activeTabId) return;
     chrome.tabs.sendMessage(activeTabId, message, (response) => {
@@ -64,14 +255,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 3. 상태 동기화 요청
+  // 8. 상태 동기화 요청
   function syncState() {
     sendTabMessage({ action: 'GET_STATE' });
   }
 
-  // 4. UI 갱신
+  // 9. UI 갱신
   function updateUI(state) {
     if (!state) return;
+
+    if (state.enabled !== undefined) {
+      currentConfig.enabled = state.enabled;
+      updatePowerUI(state.enabled);
+    }
 
     const semi = state.semitones;
     pitchRangeSlider.value = semi;
@@ -121,7 +317,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // 5. 버튼 이벤트 리스너 바인딩
+  // 10. 버튼 이벤트 리스너
   btnStepDown.addEventListener('click', () => {
     sendTabMessage({ action: 'CHANGE_PITCH', delta: -1 });
   });
@@ -195,7 +391,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     sendTabMessage({ action: 'TOGGLE_VOCAL_CUT', enabled: e.target.checked });
   });
 
-  // 백그라운드나 탭에서 온 상태 변경 메시지 감지
+  // 상태 변경 감지
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'KARAOKE_STATE_CHANGED' && msg.state) {
       updateUI(msg.state);

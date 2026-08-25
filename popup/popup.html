@@ -17,118 +17,182 @@
           <span class="brand-sub">YouTube Pitch Shifter</span>
         </div>
       </div>
-      <div class="status-badge" id="status-badge">
-        <span class="dot"></span>
-        <span id="status-text">연결 대기</span>
+      <div class="header-right">
+        <!-- Master ON/OFF Switch -->
+        <label class="master-switch" title="확장 프로그램 전체 기능 ON/OFF">
+          <input type="checkbox" id="chk-master-power" checked>
+          <span class="master-slider">
+            <span class="power-icon">⏻</span>
+          </span>
+        </label>
       </div>
     </header>
 
-    <!-- Not on YouTube Warning Screen (Shown when active tab is not youtube) -->
-    <div class="not-yt-card" id="not-yt-card" style="display: none;">
-      <div class="not-yt-icon">📺</div>
-      <p class="not-yt-msg">유튜브 페이지를 열고 영상을 재생해주세요!</p>
-      <button class="btn btn-yt" id="btn-open-yt">유튜브 노래방 바로가기</button>
+    <!-- Tab Navigation -->
+    <nav class="nav-tabs">
+      <button class="nav-tab active" id="tab-btn-remote">🎛️ 리모콘</button>
+      <button class="nav-tab" id="tab-btn-settings">⚙️ 단축키 설정</button>
+    </nav>
+
+    <!-- Tab 1: Remote Controller -->
+    <div class="tab-content" id="tab-content-remote">
+      <!-- Status Badge -->
+      <div class="status-bar">
+        <div class="status-badge" id="status-badge">
+          <span class="dot"></span>
+          <span id="status-text">연결 대기</span>
+        </div>
+        <span class="power-status-label" id="power-status-label">작동 중 (ON)</span>
+      </div>
+
+      <!-- Not on YouTube Warning Screen -->
+      <div class="not-yt-card" id="not-yt-card" style="display: none;">
+        <div class="not-yt-icon">📺</div>
+        <p class="not-yt-msg">유튜브 페이지를 열고 영상을 재생해주세요!</p>
+        <button class="btn btn-yt" id="btn-open-yt">유튜브 노래방 바로가기</button>
+      </div>
+
+      <!-- Main Controller Panel -->
+      <main class="main-content" id="main-content">
+        <!-- Pitch Display Section -->
+        <section class="pitch-card">
+          <div class="pitch-sub-title">현재 음정 (PITCH)</div>
+          <div class="pitch-main-display">
+            <button class="pitch-quick-step" id="btn-step-down" title="1키 내림">◀</button>
+            <div class="pitch-readout">
+              <span class="pitch-number" id="pitch-number">0</span>
+              <span class="pitch-tag" id="pitch-tag">원곡 키 (ORIGINAL)</span>
+            </div>
+            <button class="pitch-quick-step" id="btn-step-up" title="1키 올림">▶</button>
+          </div>
+
+          <!-- Semitone Range Slider -->
+          <div class="pitch-slider-wrap">
+            <span class="slider-limit-label">-12</span>
+            <input type="range" id="pitch-range-slider" min="-12" max="12" step="1" value="0">
+            <span class="slider-limit-label">+12</span>
+          </div>
+
+          <!-- Key Buttons Row -->
+          <div class="key-btn-row">
+            <button class="btn btn-pitch-down" id="btn-pitch-down">
+              <span class="symbol">♭</span> -1 키
+            </button>
+            <button class="btn btn-pitch-reset" id="btn-pitch-reset">
+              원키 (0)
+            </button>
+            <button class="btn btn-pitch-up" id="btn-pitch-up">
+              <span class="symbol">♯</span> +1 키
+            </button>
+          </div>
+        </section>
+
+        <!-- Presets -->
+        <section class="section-presets">
+          <div class="section-title">⚡ 빠른 키 변환 (프리셋)</div>
+          <div class="preset-grid">
+            <button class="btn btn-preset" id="preset-m2f" title="남자가 여자 노래 부를 때">
+              <span>👨→👩</span> 여키 (-4)
+            </button>
+            <button class="btn btn-preset" id="preset-f2m" title="여자가 남자 노래 부를 때">
+              <span>👩→👨</span> 남키 (+4)
+            </button>
+            <button class="btn btn-preset" id="preset-minus2">
+              <span>♭</span> -2 키
+            </button>
+            <button class="btn btn-preset" id="preset-plus2">
+              <span>♯</span> +2 키
+            </button>
+          </div>
+        </section>
+
+        <!-- Sliders: Tempo & Volume Boost -->
+        <section class="section-controls">
+          <div class="control-row">
+            <div class="control-label">
+              <span>⏱️ 재생 속도 (템포)</span>
+              <span class="control-val" id="val-tempo">1.0x</span>
+            </div>
+            <div class="slider-with-btn">
+              <input type="range" class="custom-slider" id="slider-tempo" min="0.7" max="1.3" step="0.05" value="1.0">
+              <button class="btn-mini-reset" id="btn-reset-tempo" title="템포 초기화">↺</button>
+            </div>
+          </div>
+
+          <div class="control-row">
+            <div class="control-label">
+              <span>🔊 MR 볼륨 증폭</span>
+              <span class="control-val" id="val-volume">100%</span>
+            </div>
+            <div class="slider-with-btn">
+              <input type="range" class="custom-slider" id="slider-volume" min="0.5" max="2.0" step="0.05" value="1.0">
+              <button class="btn-mini-reset" id="btn-reset-volume" title="볼륨 초기화">↺</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Vocal Cut (MR Mode) -->
+        <section class="section-vocal-cut">
+          <div class="vocal-cut-info">
+            <div class="vocal-cut-title">
+              <span>🎙️ 보컬 컷 (가라오케 모드)</span>
+              <span class="badge-new">MR추출</span>
+            </div>
+            <span class="vocal-cut-desc">일반 음원에서 보컬을 줄이고 반주를 살립니다</span>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="chk-vocal-cut">
+            <span class="slider round"></span>
+          </label>
+        </section>
+      </main>
     </div>
 
-    <!-- Main Controller Area -->
-    <main class="main-content" id="main-content">
-      <!-- Pitch Display Section -->
-      <section class="pitch-card">
-        <div class="pitch-sub-title">현재 음정 (PITCH)</div>
-        <div class="pitch-main-display">
-          <button class="pitch-quick-step" id="btn-step-down" title="1키 내림">◀</button>
-          <div class="pitch-readout">
-            <span class="pitch-number" id="pitch-number">0</span>
-            <span class="pitch-tag" id="pitch-tag">원곡 키 (ORIGINAL)</span>
+    <!-- Tab 2: Shortcut Settings -->
+    <div class="tab-content" id="tab-content-settings" style="display: none;">
+      <section class="settings-card">
+        <div class="settings-header">
+          <div class="settings-title">⌨️ 단축키 사용자 지정</div>
+          <div class="settings-desc">버튼을 클릭한 뒤 원하는 키를 누르면 변경됩니다.</div>
+        </div>
+
+        <div class="shortcut-list">
+          <div class="shortcut-item">
+            <span class="shortcut-label">반음 내리기 (♭ -1)</span>
+            <button class="btn-key-bind" data-action="pitchDown" id="bind-pitchDown">[</button>
           </div>
-          <button class="pitch-quick-step" id="btn-step-up" title="1키 올림">▶</button>
+          <div class="shortcut-item">
+            <span class="shortcut-label">반음 올리기 (♯ +1)</span>
+            <button class="btn-key-bind" data-action="pitchUp" id="bind-pitchUp">]</button>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-label">원키로 리셋 (0)</span>
+            <button class="btn-key-bind" data-action="pitchReset" id="bind-pitchReset">Alt + 0</button>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-label">리모콘 화면 표시/숨김</span>
+            <button class="btn-key-bind" data-action="toggleUI" id="bind-toggleUI">Alt + M</button>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-label">보컬 컷 (MR) 토글</span>
+            <button class="btn-key-bind" data-action="toggleVocalCut" id="bind-toggleVocalCut">Alt + V</button>
+          </div>
+          <div class="shortcut-item">
+            <span class="shortcut-label">기능 ON/OFF 토글</span>
+            <button class="btn-key-bind" data-action="togglePower" id="bind-togglePower">Alt + P</button>
+          </div>
         </div>
 
-        <!-- Semitone Range Slider -->
-        <div class="pitch-slider-wrap">
-          <span class="slider-limit-label">-12</span>
-          <input type="range" id="pitch-range-slider" min="-12" max="12" step="1" value="0">
-          <span class="slider-limit-label">+12</span>
-        </div>
-
-        <!-- Key Buttons Row -->
-        <div class="key-btn-row">
-          <button class="btn btn-pitch-down" id="btn-pitch-down">
-            <span class="symbol">♭</span> -1 키
-          </button>
-          <button class="btn btn-pitch-reset" id="btn-pitch-reset">
-            원키 (0)
-          </button>
-          <button class="btn btn-pitch-up" id="btn-pitch-up">
-            <span class="symbol">♯</span> +1 키
-          </button>
+        <div class="settings-actions">
+          <button class="btn btn-secondary" id="btn-reset-shortcuts">기본값으로 복원</button>
         </div>
       </section>
+    </div>
 
-      <!-- Presets -->
-      <section class="section-presets">
-        <div class="section-title">⚡ 빠른 키 변환 (프리셋)</div>
-        <div class="preset-grid">
-          <button class="btn btn-preset" id="preset-m2f" title="남자가 여자 노래 부를 때">
-            <span>👨→👩</span> 여키 (-4)
-          </button>
-          <button class="btn btn-preset" id="preset-f2m" title="여자가 남자 노래 부를 때">
-            <span>👩→👨</span> 남키 (+4)
-          </button>
-          <button class="btn btn-preset" id="preset-minus2">
-            <span>♭</span> -2 키
-          </button>
-          <button class="btn btn-preset" id="preset-plus2">
-            <span>♯</span> +2 키
-          </button>
-        </div>
-      </section>
-
-      <!-- Sliders: Tempo & Volume Boost -->
-      <section class="section-controls">
-        <div class="control-row">
-          <div class="control-label">
-            <span>⏱️ 재생 속도 (템포)</span>
-            <span class="control-val" id="val-tempo">1.0x</span>
-          </div>
-          <div class="slider-with-btn">
-            <input type="range" class="custom-slider" id="slider-tempo" min="0.7" max="1.3" step="0.05" value="1.0">
-            <button class="btn-mini-reset" id="btn-reset-tempo" title="템포 초기화">↺</button>
-          </div>
-        </div>
-
-        <div class="control-row">
-          <div class="control-label">
-            <span>🔊 MR 볼륨 증폭</span>
-            <span class="control-val" id="val-volume">100%</span>
-          </div>
-          <div class="slider-with-btn">
-            <input type="range" class="custom-slider" id="slider-volume" min="0.5" max="2.0" step="0.05" value="1.0">
-            <button class="btn-mini-reset" id="btn-reset-volume" title="볼륨 초기화">↺</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- Vocal Cut (MR Mode) -->
-      <section class="section-vocal-cut">
-        <div class="vocal-cut-info">
-          <div class="vocal-cut-title">
-            <span>🎙️ 보컬 컷 (가라오케 모드)</span>
-            <span class="badge-new">MR추출</span>
-          </div>
-          <span class="vocal-cut-desc">일반 음원에서 보컬을 줄이고 반주를 살립니다</span>
-        </div>
-        <label class="switch">
-          <input type="checkbox" id="chk-vocal-cut">
-          <span class="slider round"></span>
-        </label>
-      </section>
-    </main>
-
-    <!-- Footer: Shortcuts & Options -->
+    <!-- Footer -->
     <footer class="footer">
-      <div class="shortcut-guide">
-        <span>단축키: <kbd>[</kbd> <kbd>]</kbd> (키조절) / <kbd>Alt+0</kbd> (원키) / <kbd>Alt+M</kbd> (화면UI)</span>
+      <div class="shortcut-guide" id="footer-shortcut-guide">
+        <span>단축키: <kbd id="kbd-down">[</kbd> <kbd id="kbd-up">]</kbd> (키조절) / <kbd id="kbd-reset">Alt+0</kbd> (원키)</span>
       </div>
     </footer>
   </div>

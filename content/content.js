@@ -140,9 +140,18 @@
         sendResponse({ success: true, state: shifter.getState() });
         break;
 
-      case 'TOGGLE_UI':
+      case 'SET_POWER':
         if (ui) {
-          ui.toggleVisibility();
+          ui.setEnabled(request.enabled, true);
+        } else {
+          shifter.setEnabled(request.enabled);
+        }
+        sendResponse({ success: true, state: shifter.getState() });
+        break;
+
+      case 'UPDATE_CONFIG':
+        if (ui) {
+          ui.updateConfig(request.config);
         }
         sendResponse({ success: true });
         break;

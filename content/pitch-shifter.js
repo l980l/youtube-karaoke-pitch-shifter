@@ -40,6 +40,7 @@ class AudioPitchShifter {
     this.vocalProcessingOut = null;
     
     // State
+    this.enabled = true; // 마스터 활성화 여부
     this.semitones = 0; // -12 to +12
     this.tempo = 1.0; // 0.5 to 1.5
     this.volume = 1.0; // 0.0 to 2.5
@@ -411,6 +412,36 @@ class AudioPitchShifter {
   }
 
   /**
+   * 마스터 ON/OFF 설정
+   */
+  setEnabled(enabled) {
+    this.enabled = !!enabled;
+    if (!this.isInitialized || !this.audioCtx) return this.enabled;
+
+    const ctx = this.audioCtx;
+    const now = ctx.currentTime;
+    const smooth = 0.04;
+
+    if (!this.enabled) {
+      // OFF: 완전 바이패스 모드 (원음 100% 직결 및 원래 속도 복구)
+      this.bypassGain.gain.setTargetAtTime(1.0, now, smooth);
+      this.pitchGain.gain.setTargetAtTime(0.0, now, smooth);
+      this.directPassGain.gain.setTargetAtTime(1.0, now, smooth);
+      this.vocalCutGain.gain.setTargetAtTime(0.0, now, smooth);
+      if (this.videoElement) {
+        this.videoElement.playbackRate = 1.0;
+      }
+    } else {
+      // ON: 현재 피치, 템포, 보컬컷 설정 복구
+      this.setPitch(this.semitones);
+      this.setTempo(this.tempo);
+      this.setVolume(this.volume);
+      this.setVocalCut(this.vocalCutEnabled);
+    }
+    return this.enabled;
+  }
+
+  /**
    * 상태 리셋 (원키 0, 템포 1.0, 보컬컷 OFF)
    */
   reset() {
@@ -426,6 +457,7 @@ class AudioPitchShifter {
    */
   getState() {
     return {
+      enabled: this.enabled,
       semitones: this.semitones,
       tempo: this.tempo,
       volume: this.volume,
