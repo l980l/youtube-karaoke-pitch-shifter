@@ -1,0 +1,80 @@
+{
+  "manifest_version": 3,
+  "name": "유튜브 노래방 키 조절기 (YouTube Karaoke Key Pitch Shifter)",
+  "version": "1.0.0",
+  "description": "유튜브 노래방(TJ, 금영 등) 및 영상의 음정(키, Pitch)을 반음 단위로 실시간 조절하고 템포 및 보컬 컷 기능을 제공합니다.",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*.youtube.com/*",
+    "https://*.youtu.be/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "유튜브 노래방 키 조절기"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://*.youtu.be/*"
+      ],
+      "js": [
+        "content/pitch-shifter.js",
+        "content/karaoke-ui.js",
+        "content/content.js"
+      ],
+      "css": [
+        "content/overlay.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "commands": {
+    "pitch-up": {
+      "suggested_key": {
+        "default": "Alt+Period",
+        "mac": "Alt+Period"
+      },
+      "description": "키 반음 올리기 (+1 Key)"
+    },
+    "pitch-down": {
+      "suggested_key": {
+        "default": "Alt+Comma",
+        "mac": "Alt+Comma"
+      },
+      "description": "키 반음 내리기 (-1 Key)"
+    },
+    "pitch-reset": {
+      "suggested_key": {
+        "default": "Alt+Slash",
+        "mac": "Alt+Slash"
+      },
+      "description": "원키로 리셋 (0 Key)"
+    },
+    "toggle-ui": {
+      "suggested_key": {
+        "default": "Alt+M",
+        "mac": "Alt+M"
+      },
+      "description": "노래방 리모콘 오버레이 토글"
+    }
+  }
+}
