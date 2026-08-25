@@ -34,7 +34,6 @@
         "https://*.youtu.be/*"
       ],
       "js": [
-        "content/soundtouch.js",
         "content/pitch-shifter.js",
         "content/karaoke-ui.js",
         "content/content.js"
