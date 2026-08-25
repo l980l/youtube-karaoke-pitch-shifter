@@ -25,7 +25,7 @@ class KaraokeUI {
     this.dragOffset = { x: 0, y: 0 };
     this.osdTimer = null;
     this.isMinimized = false;
-    this.isVisible = true;
+    this.isVisible = false; // 기본값: 숨김 상태 (자동 팝업 방지)
     this.config = JSON.parse(JSON.stringify(DEFAULT_KARAOKE_CONFIG));
 
     // UI elements references
@@ -111,6 +111,7 @@ class KaraokeUI {
 
     const overlay = document.createElement('div');
     overlay.id = 'yk-karaoke-overlay';
+    overlay.className = 'yk-hidden'; // 기본적으로 숨김 처리
     overlay.innerHTML = `
       <div class="yk-drag-handle" id="yk-drag-header">
         <div class="yk-title-area">
