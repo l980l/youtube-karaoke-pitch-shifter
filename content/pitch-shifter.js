@@ -58,7 +58,7 @@ class AudioPitchShifter {
     if (!videoElement) return false;
     if (this.videoElement === videoElement && this.isInitialized) {
       if (this.audioCtx && this.audioCtx.state === 'suspended') {
-        await this.audioCtx.resume();
+        this.setupUserGestureResume();
       }
       return true;
     }
@@ -72,7 +72,7 @@ class AudioPitchShifter {
       }
 
       if (this.audioCtx.state === 'suspended') {
-        await this.audioCtx.resume();
+        this.setupUserGestureResume();
       }
 
       // 비디오에 중복 createMediaElementSource 호출 방지
@@ -108,6 +108,28 @@ class AudioPitchShifter {
     } catch (err) {
       console.error('[Karaoke Shifter] Init failed:', err);
       return false;
+    }
+  }
+
+  /**
+   * 브라우저 자동재생 정책 준수: 사용자 상호작용(재생/클릭/키입력) 시 AudioContext 재개
+   */
+  setupUserGestureResume() {
+    if (!this.audioCtx || this.audioCtx.state === 'running') return;
+
+    const resume = () => {
+      if (this.audioCtx && this.audioCtx.state === 'suspended') {
+        this.audioCtx.resume().catch(() => {});
+      }
+      window.removeEventListener('pointerdown', resume, true);
+      window.removeEventListener('keydown', resume, true);
+    };
+
+    window.addEventListener('pointerdown', resume, true);
+    window.addEventListener('keydown', resume, true);
+
+    if (this.videoElement) {
+      this.videoElement.addEventListener('play', resume, { once: true });
     }
   }
 
@@ -307,7 +329,7 @@ class AudioPitchShifter {
     const pitchRatio = Math.pow(2, this.semitones / 12);
     
     if (this.audioCtx && this.audioCtx.state === 'suspended') {
-      this.audioCtx.resume();
+      this.audioCtx.resume().catch(() => {});
     }
 
     this.updatePitchInternal(pitchRatio);

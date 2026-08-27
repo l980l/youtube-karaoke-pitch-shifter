@@ -35,7 +35,7 @@
       // 비디오 재생 이벤트 시 AudioContext suspended 해제
       video.addEventListener('play', () => {
         if (shifter.audioCtx && shifter.audioCtx.state === 'suspended') {
-          shifter.audioCtx.resume();
+          shifter.audioCtx.resume().catch(() => {});
         }
       });
     }
