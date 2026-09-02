@@ -15,6 +15,8 @@ class AudioPitchShifter {
     this.outputGain = null;
     this.bypassGain = null;
     this.pitchGain = null;
+    this.workletNode = null;
+    this.isWorkletLoaded = false;
     this.compressor = null;
     this.toneFilter = null;
     
@@ -75,6 +77,8 @@ class AudioPitchShifter {
         this.setupUserGestureResume();
       }
 
+      await this.loadAudioWorklet();
+
       // 비디오에 중복 createMediaElementSource 호출 방지
       if (!videoElement.__pitchSourceConnected) {
         try {
@@ -108,6 +112,22 @@ class AudioPitchShifter {
     } catch (err) {
       console.error('[Karaoke Shifter] Init failed:', err);
       return false;
+    }
+  }
+
+  /**
+   * 확장 프로그램 리소스에서 워크릿을 읽는다. 로딩 실패 시 기존 네이티브
+   * 지연선 엔진을 사용하므로, 지원하지 않는 환경에서도 오디오가 끊기지 않는다.
+   */
+  async loadAudioWorklet() {
+    if (this.isWorkletLoaded || !this.audioCtx?.audioWorklet) return;
+    try {
+      await this.audioCtx.audioWorklet.addModule(
+        chrome.runtime.getURL('content/pitch-worklet.js')
+      );
+      this.isWorkletLoaded = true;
+    } catch (error) {
+      console.warn('[Karaoke Shifter] Precision worklet unavailable; using compatibility engine.', error);
     }
   }
 
@@ -166,7 +186,11 @@ class AudioPitchShifter {
     this.setupVocalCutGraph();
 
     // 3. Precision Pitch Shifter 서브그래프
-    this.setupPitchShifterGraph();
+    if (this.isWorkletLoaded) {
+      this.setupWorkletPitchGraph();
+    } else {
+      this.setupPitchShifterGraph();
+    }
 
     // 4. Connect Audio Paths
     // Direct Bypass -> Compressor
@@ -182,6 +206,18 @@ class AudioPitchShifter {
     this.outputGain.connect(ctx.destination);
 
     this.updatePitchInternal(1.0);
+  }
+
+  /** 정확한 비율 처리를 위한 STFT Phase Vocoder 경로 */
+  setupWorkletPitchGraph() {
+    const ctx = this.audioCtx;
+    this.workletNode = new AudioWorkletNode(ctx, 'karaoke-pitch-processor', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [2]
+    });
+    this.vocalProcessingOut.connect(this.workletNode);
+    this.workletNode.connect(this.pitchGain);
   }
 
   /**
@@ -359,6 +395,11 @@ class AudioPitchShifter {
       this.pitchGain.gain.cancelScheduledValues(now);
       this.bypassGain.gain.setTargetAtTime(0.0, now, smoothTime);
       this.pitchGain.gain.setTargetAtTime(1.0, now, smoothTime);
+
+      if (this.workletNode) {
+        this.workletNode.port.postMessage({ pitchRatio });
+        return;
+      }
 
       if (pitchRatio > 1.0) {
         // [키 올리기 (Pitch Up)]

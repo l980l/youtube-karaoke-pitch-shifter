@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "유튜브 노래방 키 조절기 (YouTube Karaoke Key Pitch Shifter)",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "유튜브 노래방(TJ, 금영 등) 및 영상의 음정(키, Pitch)을 반음 단위로 실시간 조절하고 템포 및 보컬 컷 기능을 제공합니다.",
   "permissions": [
     "storage",
@@ -42,6 +42,17 @@
         "content/overlay.css"
       ],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/pitch-worklet.js"
+      ],
+      "matches": [
+        "https://*.youtube.com/*",
+        "https://*.youtu.be/*"
+      ]
     }
   ],
   "background": {
