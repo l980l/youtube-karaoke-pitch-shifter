@@ -12,7 +12,7 @@
   <a href="https://chromewebstore.google.com/detail/cpfndkillhbblcfobjhoiindpdaaccdh">
     <img src="https://img.shields.io/badge/Chrome_Web_Store-다운로드-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chrome Web Store Download" />
   </a>
-  <img src="https://img.shields.io/badge/Version-1.2.0-FF2A6D?style=for-the-badge" alt="Version 1.2.0" />
+  <img src="https://img.shields.io/badge/Version-1.3.0-FF2A6D?style=for-the-badge" alt="Version 1.3.0" />
   <img src="https://img.shields.io/badge/License-MIT-05D9E8?style=for-the-badge" alt="License" />
 </p>
 
@@ -47,6 +47,7 @@
   - **남→여 −4**: 남자가 여자 노래 부를 때
   - **여→남 +4**: 여자가 남자 노래 부를 때
   - **원키**: 즉시 원곡 키로 복구 (처리 없이 원음 그대로)
+- 🗣️ **목소리 자연스럽게 (포먼트 유지)**: 키를 바꿔도 다람쥐 목소리나 굵은 목소리가 되지 않도록 원래 음색을 유지 (설정에서 끌 수 있음)
 - 💾 **곡별 키 자동 기억**: 곡마다 마지막으로 쓴 키를 기억했다가 다시 열면 자동 적용 (설정에서 끌 수 있음)
 - ⏱️ **템포(재생 속도) 미세 조절**: 0.7x ~ 1.3x 범위로 반주 속도 조절 (유튜브 자체 속도 메뉴와 자동 동기화)
 - 🎙️ **보컬 줄이기**: 일반 원곡 뮤직비디오/음원에서 가운데 목소리를 줄여 반주처럼 활용
@@ -124,5 +125,5 @@ youtube-karaoke-pitch-shifter/
 node --test tests/*.test.mjs
 ```
 
-- `tests/pitch-worklet.test.mjs`: 피치 엔진을 오프라인으로 실행해 음정 오차(5 cent 이내), 음량 유지(±1.5 dB), 화음, 유휴 전환을 검증합니다.
+- `tests/pitch-worklet.test.mjs`: 피치 엔진을 오프라인으로 실행해 음정 오차(5 cent 이내), 음량 유지(±1.5 dB), 화음, 유휴 전환, 목소리 음색 유지(포먼트), 스테레오 보컬 정위를 검증합니다.
 - `tests/config.test.mjs`: 설정 병합, 단축키 매칭(Cmd+[ 오인식 방지 등), 영상 ID 파싱을 검증합니다.

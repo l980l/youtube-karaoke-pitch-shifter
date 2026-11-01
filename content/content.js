@@ -111,6 +111,7 @@
   function applyConfig(config) {
     const merged = mergeKaraokeConfig(config);
     rememberKeyPerVideo = merged.rememberKeyPerVideo;
+    shifter.setPreserveFormants(merged.preserveFormants);
     if (ui) ui.updateConfig(merged);
     else if (shifter.enabled !== merged.enabled) shifter.setEnabled(merged.enabled);
   }

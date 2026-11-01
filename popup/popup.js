@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const chkVocalCut = document.getElementById('chk-vocal-cut');
   const btnResetShortcuts = document.getElementById('btn-reset-shortcuts');
   const chkRememberKey = document.getElementById('chk-remember-key');
+  const chkPreserveFormants = document.getElementById('chk-preserve-formants');
 
   let activeTabId = null;
   let currentConfig = mergeKaraokeConfig(null);
@@ -98,6 +99,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         currentConfig = mergeKaraokeConfig(res && res.karaokeConfig);
         updatePowerUI(currentConfig.enabled);
         chkRememberKey.checked = currentConfig.rememberKeyPerVideo;
+        chkPreserveFormants.checked = currentConfig.preserveFormants;
         renderShortcutLabels();
         resolve(currentConfig);
       });
@@ -218,6 +220,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 곡별 키 기억 토글
   chkRememberKey.addEventListener('change', async (e) => {
     currentConfig.rememberKeyPerVideo = e.target.checked;
+    await saveConfig();
+  });
+
+  // 포먼트 유지 토글
+  chkPreserveFormants.addEventListener('change', async (e) => {
+    currentConfig.preserveFormants = e.target.checked;
     await saveConfig();
   });
 

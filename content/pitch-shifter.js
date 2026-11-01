@@ -42,6 +42,7 @@ class AudioPitchShifter {
     this.tempo = 1.0;
     this.volume = 1.0;
     this.vocalCutEnabled = false;
+    this.preserveFormants = true;
     this.isInitialized = false;
   }
 
@@ -337,7 +338,7 @@ class AudioPitchShifter {
     const pitchRatio = Math.pow(2, this.semitones / 12);
     if (this.workletNode) {
       // 키 0 / OFF 동안 워크릿은 페이드아웃 후 FFT 연산을 멈춘다 (CPU 절약).
-      this.workletNode.port.postMessage({ pitchRatio, active: shifting });
+      this.workletNode.port.postMessage({ pitchRatio, active: shifting, formant: this.preserveFormants });
       return;
     }
     if (!shifting || !this.delay1) return;
@@ -396,6 +397,13 @@ class AudioPitchShifter {
     this.vocalCutEnabled = !!enable;
     this.applyAll();
     return this.vocalCutEnabled;
+  }
+
+  /** 포먼트 유지: 키를 바꿔도 목소리 음색(다람쥐/굵은 목소리 현상 방지) */
+  setPreserveFormants(enabled) {
+    this.preserveFormants = !!enabled;
+    if (this.workletNode) this.workletNode.port.postMessage({ formant: this.preserveFormants });
+    return this.preserveFormants;
   }
 
   /** 마스터 ON/OFF: OFF면 원음 직결 + 재생 속도 1.0 */

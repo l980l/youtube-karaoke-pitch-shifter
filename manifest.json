@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tono — 유튜브 노래방 키 조절",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "유튜브 노래방·음악 영상의 키(음정)를 속도 변화 없이 반음 단위로 조절합니다. 곡별 키 기억, 재생 속도, 보컬 줄이기를 지원합니다.",
   "permissions": [
     "storage",

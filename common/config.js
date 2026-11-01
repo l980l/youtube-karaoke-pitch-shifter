@@ -5,6 +5,7 @@
 const KARAOKE_DEFAULT_CONFIG = Object.freeze({
   enabled: true,
   rememberKeyPerVideo: true,
+  preserveFormants: true,
   shortcuts: {
     pitchDown: { key: '[', code: 'BracketLeft', altKey: false, ctrlKey: false, shiftKey: false, metaKey: false, label: '[' },
     pitchUp: { key: ']', code: 'BracketRight', altKey: false, ctrlKey: false, shiftKey: false, metaKey: false, label: ']' },
