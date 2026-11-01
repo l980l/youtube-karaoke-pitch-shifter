@@ -20,14 +20,16 @@ function loadProcessor() {
   return proc;
 }
 
-function run(proc, signal) {
+function run(proc, signal, right = signal) {
   const out = new Float32Array(signal.length);
+  const outRight = new Float32Array(signal.length);
   for (let start = 0; start + BLOCK <= signal.length; start += BLOCK) {
-    const block = signal.subarray(start, start + BLOCK);
     const outputs = [[new Float32Array(BLOCK), new Float32Array(BLOCK)]];
-    proc.process([[block, block]], outputs);
+    proc.process([[signal.subarray(start, start + BLOCK), right.subarray(start, start + BLOCK)]], outputs);
     out.set(outputs[0][0], start);
+    outRight.set(outputs[0][1], start);
   }
+  out.right = outRight;
   return out;
 }
 
@@ -112,4 +114,38 @@ test('goes idle (silent, no processing) after deactivation and recovers when rea
   const out = run(proc, sine(330, 1)).subarray(SAMPLE_RATE * 0.3);
   const cents = 1200 * Math.log2(estimateFrequency(out) / 495);
   assert.ok(Math.abs(cents) < 5, `after reactivation: ${cents.toFixed(2)} cents`);
+});
+
+test('stereo link: a centred voice stays centred when L/R accompaniment differs', () => {
+  const proc = loadProcessor();
+  const ratio = Math.pow(2, 4 / 12);
+  proc.send({ pitchRatio: ratio, active: true });
+  const n = SAMPLE_RATE * 1.5;
+  // Voice: 220 Hz with 8 harmonics and vibrato, identical on both sides.
+  const voice = new Float32Array(n);
+  let phase = 0;
+  for (let i = 0; i < n; i++) {
+    phase += 2 * Math.PI * 220 * (1 + 0.01 * Math.sin(2 * Math.PI * 5.5 * i / SAMPLE_RATE)) / SAMPLE_RATE;
+    for (let h = 1; h <= 8; h++) voice[i] += 0.15 * Math.sin(h * phase) / h;
+  }
+  // Busy accompaniment that differs per side (30 partials each, off the voice harmonics).
+  const accompaniment = (base, step) => (i) => {
+    let v = 0;
+    for (let k = 0; k < 30; k++) { const f = base + k * step; v += (0.4 / 30) * Math.sin(2 * Math.PI * f * i / SAMPLE_RATE + f); }
+    return v;
+  };
+  const accLeft = accompaniment(150, 97.3);
+  const accRight = accompaniment(170, 101.9);
+  const left = voice.map((v, i) => v + accLeft(i));
+  const right = voice.map((v, i) => v + accRight(i));
+  const out = run(proc, left, right);
+  const start = SAMPLE_RATE * 0.5;
+  const L = out.subarray(start), R = out.right.subarray(start);
+  const mid = L.map((v, i) => (v + R[i]) / 2);
+  const side = L.map((v, i) => (v - R[i]) / 2);
+  let midV = 0, sideV = 0;
+  for (let h = 1; h <= 6; h++) { midV += toneLevel(mid, 220 * ratio * h); sideV += toneLevel(side, 220 * ratio * h); }
+  const leakDb = 20 * Math.log10(sideV / midV);
+  // v1.2.0 (channels processed independently) measured about -21 dB here.
+  assert.ok(leakDb < -35, `voice leaks into L-R at ${leakDb.toFixed(1)} dB`);
 });

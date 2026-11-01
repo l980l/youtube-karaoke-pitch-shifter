@@ -12,7 +12,7 @@
   <a href="https://chromewebstore.google.com/detail/cpfndkillhbblcfobjhoiindpdaaccdh">
     <img src="https://img.shields.io/badge/Chrome_Web_Store-다운로드-4285F4?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Chrome Web Store Download" />
   </a>
-  <img src="https://img.shields.io/badge/Version-1.2.0-FF2A6D?style=for-the-badge" alt="Version 1.2.0" />
+  <img src="https://img.shields.io/badge/Version-1.2.1-FF2A6D?style=for-the-badge" alt="Version 1.2.1" />
   <img src="https://img.shields.io/badge/License-MIT-05D9E8?style=for-the-badge" alt="License" />
 </p>
 
