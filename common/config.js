@@ -45,6 +45,16 @@ function isKaraokeShortcutMatch(e, binding) {
   return !!(binding.key && e.key && binding.key.toLowerCase() === e.key.toLowerCase());
 }
 
+/** Display a stored shortcut label the platform way (macOS: ⌃⌥⇧⌘ symbols). */
+function formatShortcutLabel(label) {
+  if (!label) return '';
+  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent || '');
+  if (!isMac) return label;
+  return label
+    .replace(/Ctrl \+ /g, '⌃').replace(/Alt \+ /g, '⌥')
+    .replace(/Shift \+ /g, '⇧').replace(/Cmd \+ /g, '⌘');
+}
+
 /** YouTube video id of a URL (/watch?v=, /shorts/, youtu.be/), or null. */
 function getYouTubeVideoId(href) {
   try {
@@ -59,5 +69,5 @@ function getYouTubeVideoId(href) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { KARAOKE_DEFAULT_CONFIG, mergeKaraokeConfig, isKaraokeShortcutMatch, getYouTubeVideoId };
+  module.exports = { KARAOKE_DEFAULT_CONFIG, mergeKaraokeConfig, isKaraokeShortcutMatch, getYouTubeVideoId, formatShortcutLabel };
 }
