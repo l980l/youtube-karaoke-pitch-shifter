@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "유튜브 노래방 키 조절기 (YouTube Karaoke Key Pitch Shifter)",
-  "version": "1.0.1",
-  "description": "유튜브 노래방(TJ, 금영 등) 및 영상의 음정(키, Pitch)을 반음 단위로 실시간 조절하고 템포 및 보컬 컷 기능을 제공합니다.",
+  "name": "Tono — 유튜브 노래방 키 조절",
+  "version": "1.2.0",
+  "description": "유튜브 노래방·음악 영상의 키(음정)를 속도 변화 없이 반음 단위로 조절합니다. 곡별 키 기억, 재생 속도, 보컬 줄이기를 지원합니다.",
   "permissions": [
     "storage",
     "activeTab"
@@ -19,7 +19,7 @@
       "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     },
-    "default_title": "유튜브 노래방 키 조절기"
+    "default_title": "Tono — 키 조절"
   },
   "icons": {
     "16": "icons/icon16.png",
@@ -34,6 +34,7 @@
         "https://*.youtu.be/*"
       ],
       "js": [
+        "common/config.js",
         "content/pitch-shifter.js",
         "content/karaoke-ui.js",
         "content/content.js"
@@ -64,28 +65,29 @@
         "default": "Alt+Period",
         "mac": "Alt+Period"
       },
-      "description": "키 반음 올리기 (+1 Key)"
+      "description": "반음 올리기"
     },
     "pitch-down": {
       "suggested_key": {
         "default": "Alt+Comma",
         "mac": "Alt+Comma"
       },
-      "description": "키 반음 내리기 (-1 Key)"
+      "description": "반음 내리기"
     },
     "pitch-reset": {
       "suggested_key": {
         "default": "Alt+0",
         "mac": "Alt+0"
       },
-      "description": "원키로 리셋 (0 Key)"
+      "description": "원키로"
     },
     "toggle-ui": {
       "suggested_key": {
         "default": "Alt+M",
         "mac": "Alt+M"
       },
-      "description": "노래방 리모콘 오버레이 토글"
+      "description": "화면 컨트롤 표시/숨기기"
     }
-  }
+  },
+  "short_name": "Tono"
 }

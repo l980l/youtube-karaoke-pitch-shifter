@@ -1,5 +1,5 @@
 /**
- * Background Service Worker - YouTube Karaoke Pitch Shifter
+ * Background Service Worker - Tono
  */
 
 // 단축키 명령 리스너

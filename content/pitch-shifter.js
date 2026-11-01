@@ -1,113 +1,85 @@
 /**
  * YouTube Karaoke Pitch Shifter Engine
- * High-Precision Real-time Pitch Shifter with Anti-Flanging Filter & Master Dynamics Compressor
- * 100% Rock-Solid Audio Stream Guaranteed without muting, lagging, or pitch drift.
+ *
+ * Audio graph (per attached <video>):
+ *
+ *   source ─► directGain ───────────────────────────────────────────────► destination
+ *      │                                                   (true bypass: OFF / neutral)
+ *      └─► inputGain ─► [vocal cut] ─► vocalOut ─┬─► bypassGain ─────────────┐
+ *                                                └─► pitch engine ─► pitchGain ─► toneFilter ─┤
+ *                                                                                              ▼
+ *                       destination ◄─ processedGain ◄─ limiter ◄─ volumeGain ◄──────────── mixBus
+ *
+ * "Neutral" (power OFF, or key 0 + vocal cut off + volume 100%) routes the
+ * untouched source straight to the speakers, so nothing (not even the
+ * limiter) colours the original sound. The volume boost sits before a peak
+ * limiter so boosted audio cannot clip.
  */
+
+const SMOOTH = 0.03;
+// DynamicsCompressorNode applies automatic makeup gain derived from its curve
+// (+0.57 dB measured in Chrome for the limiter settings below). Cancel it so
+// switching between the bypass and processed paths has no level jump.
+const LIMITER_MAKEUP_COMPENSATION = Math.pow(10, -0.57 / 20);
 
 class AudioPitchShifter {
   constructor() {
     this.audioCtx = null;
     this.videoElement = null;
     this.sourceNode = null;
-    
-    // Master Nodes
-    this.inputGain = null;
-    this.outputGain = null;
-    this.bypassGain = null;
-    this.pitchGain = null;
-    this.workletNode = null;
     this.isWorkletLoaded = false;
-    this.compressor = null;
-    this.toneFilter = null;
-    
-    // Pitch Shifter Nodes (Jungle DSP Architecture)
-    this.delay1 = null;
-    this.delay2 = null;
-    this.delayGain1 = null;
-    this.delayGain2 = null;
-    this.mod1 = null;
-    this.mod2 = null;
-    this.fade1 = null;
-    this.fade2 = null;
-    this.modGain1 = null;
-    this.modGain2 = null;
-    this.bufferTime = 0.100; // 100ms buffer (풍부한 저역과 안정적인 피치 트랜스포즈)
-    
-    // Vocal Cut Nodes
-    this.vocalCutEnabled = false;
-    this.splitterNode = null;
-    this.mergerNode = null;
-    this.inverterNode = null;
-    this.bassFilterNode = null;
-    this.vocalCutGain = null;
-    this.directPassGain = null;
-    this.vocalProcessingIn = null;
-    this.vocalProcessingOut = null;
-    
+    this.workletNode = null;
+    this.nodes = [];          // every node created for the current graph (for teardown)
+    this.loopSources = [];    // fallback engine LFO sources (must be stopped)
+    this.bufferTime = 0.100;  // fallback delay-line window
+    this.onPitchChange = null;    // callback() after the key changes (per-video memory)
+    this.onExternalChange = null; // callback(state) when state changes outside our UI (e.g. YouTube speed menu)
+    this.handleRateChange = this.handleRateChange.bind(this);
+
     // State
     this.enabled = true;
     this.semitones = 0;
     this.tempo = 1.0;
     this.volume = 1.0;
+    this.vocalCutEnabled = false;
     this.isInitialized = false;
-    this.isConnected = false;
   }
 
   /**
-   * AudioContext 초기화 및 비디오 요소 연결
+   * AudioContext 초기화 및 비디오 요소 연결.
+   * 다른 <video>로 바뀌면 이전 그래프를 완전히 해제한 뒤 새로 구성한다.
    */
   async init(videoElement) {
     if (!videoElement) return false;
     if (this.videoElement === videoElement && this.isInitialized) {
-      if (this.audioCtx && this.audioCtx.state === 'suspended') {
-        this.setupUserGestureResume();
-      }
+      if (this.audioCtx && this.audioCtx.state === 'suspended') this.setupUserGestureResume();
       return true;
     }
 
     try {
-      this.videoElement = videoElement;
-      
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (!this.audioCtx) {
-        this.audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
-      }
-
-      if (this.audioCtx.state === 'suspended') {
-        this.setupUserGestureResume();
-      }
-
+      if (!this.audioCtx) this.audioCtx = new AudioContextClass({ latencyHint: 'interactive' });
       await this.loadAudioWorklet();
 
-      // 비디오에 중복 createMediaElementSource 호출 방지
-      if (!videoElement.__pitchSourceConnected) {
-        try {
-          this.sourceNode = this.audioCtx.createMediaElementSource(videoElement);
-          videoElement.__pitchSourceConnected = true;
-          videoElement.__pitchSourceNode = this.sourceNode;
-        } catch (e) {
-          if (videoElement.__pitchSourceNode) {
-            this.sourceNode = videoElement.__pitchSourceNode;
-          } else {
-            console.warn('[Karaoke Shifter] MediaElementSource attach error:', e);
-            return false;
-          }
-        }
-      } else if (videoElement.__pitchSourceNode) {
-        this.sourceNode = videoElement.__pitchSourceNode;
+      // createMediaElementSource는 요소당 한 번만 가능하므로 요소에 캐시한다.
+      let source = videoElement.__pitchSourceNode;
+      if (!source) {
+        source = this.audioCtx.createMediaElementSource(videoElement);
+        videoElement.__pitchSourceNode = source;
       }
+
+      this.teardownGraph();
+      try { source.disconnect(); } catch (e) {} // 이전 원음 직결(passthrough) 해제
+      this.videoElement = videoElement;
+      this.sourceNode = source;
+      videoElement.addEventListener('ratechange', this.handleRateChange);
+
+      if (this.audioCtx.state === 'suspended') this.setupUserGestureResume();
 
       this.setupAudioGraph();
       this.isInitialized = true;
-      this.isConnected = true;
-
-      // 초기 설정값 적용
-      this.setPitch(this.semitones);
-      this.setVolume(this.volume);
-      this.setTempo(this.tempo);
-      this.setVocalCut(this.vocalCutEnabled);
-
-      console.log('[Karaoke Shifter] Audio Engine Initialized Successfully');
+      this.applyAll();
+      console.log('[Karaoke Shifter] Audio engine attached');
       return true;
     } catch (err) {
       console.error('[Karaoke Shifter] Init failed:', err);
@@ -115,412 +87,336 @@ class AudioPitchShifter {
     }
   }
 
+  /** 이전 비디오에 연결된 노드를 모두 끊어 중복 출력·메모리 누수를 막는다. */
+  teardownGraph() {
+    if (this.videoElement) {
+      this.videoElement.removeEventListener('ratechange', this.handleRateChange);
+    }
+    if (this.sourceNode) {
+      // 미디어 요소는 소스 노드를 통해서만 소리가 나므로, 이전 영상은 원음 그대로 출력되게 남겨둔다.
+      try { this.sourceNode.disconnect(); } catch (e) {}
+      try { this.sourceNode.connect(this.audioCtx.destination); } catch (e) {}
+    }
+    for (const src of this.loopSources) {
+      try { src.stop(); } catch (e) {}
+    }
+    for (const node of this.nodes) {
+      try { node.disconnect(); } catch (e) {}
+    }
+    if (this.workletNode) {
+      try { this.workletNode.port.close(); } catch (e) {}
+    }
+    this.nodes = [];
+    this.loopSources = [];
+    this.workletNode = null;
+    this.isInitialized = false;
+  }
+
   /**
-   * 확장 프로그램 리소스에서 워크릿을 읽는다. 로딩 실패 시 기존 네이티브
-   * 지연선 엔진을 사용하므로, 지원하지 않는 환경에서도 오디오가 끊기지 않는다.
+   * 확장 프로그램 리소스에서 워크릿을 읽는다. 실패하면 지연선 호환 엔진을 쓴다.
    */
   async loadAudioWorklet() {
     if (this.isWorkletLoaded || !this.audioCtx?.audioWorklet) return;
     try {
-      await this.audioCtx.audioWorklet.addModule(
-        chrome.runtime.getURL('content/pitch-worklet.js')
-      );
+      await this.audioCtx.audioWorklet.addModule(chrome.runtime.getURL('content/pitch-worklet.js'));
       this.isWorkletLoaded = true;
     } catch (error) {
       console.warn('[Karaoke Shifter] Precision worklet unavailable; using compatibility engine.', error);
     }
   }
 
-  /**
-   * 브라우저 자동재생 정책 준수: 사용자 상호작용(재생/클릭/키입력) 시 AudioContext 재개
-   */
+  /** 자동재생 정책: 사용자 상호작용(재생/클릭/키입력) 시 AudioContext 재개 */
   setupUserGestureResume() {
     if (!this.audioCtx || this.audioCtx.state === 'running') return;
-
     const resume = () => {
-      if (this.audioCtx && this.audioCtx.state === 'suspended') {
-        this.audioCtx.resume().catch(() => {});
-      }
+      if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
       window.removeEventListener('pointerdown', resume, true);
       window.removeEventListener('keydown', resume, true);
     };
-
     window.addEventListener('pointerdown', resume, true);
     window.addEventListener('keydown', resume, true);
-
-    if (this.videoElement) {
-      this.videoElement.addEventListener('play', resume, { once: true });
-    }
+    if (this.videoElement) this.videoElement.addEventListener('play', resume, { once: true });
   }
 
-  /**
-   * Web Audio DSP 그래프 구성
-   */
+  /** 그래프용 노드 생성 헬퍼 (teardown 대상 등록) */
+  track(node) {
+    this.nodes.push(node);
+    return node;
+  }
+
+  gain(value = 1) {
+    const node = this.track(this.audioCtx.createGain());
+    node.gain.value = value;
+    return node;
+  }
+
   setupAudioGraph() {
     const ctx = this.audioCtx;
 
-    // 1. Master Gains, Tone Filter & Compressor
-    this.inputGain = ctx.createGain();
-    this.outputGain = ctx.createGain();
-    this.bypassGain = ctx.createGain();
-    this.pitchGain = ctx.createGain();
+    this.directGain = this.gain(1);
+    this.processedGain = this.gain(0);
+    this.inputGain = this.gain(1);
+    this.bypassGain = this.gain(1);
+    this.pitchGain = this.gain(0);
+    this.mixBus = this.gain(1);
+    this.volumeGain = this.gain(1);
 
-    // 톤 필터 (금속성 콤필터링 고역 완화 및 따뜻한 음색 보정)
-    this.toneFilter = ctx.createBiquadFilter();
+    // 피치 경로 음색 보정 (지연/위상 처리로 얇아지는 저역 보강)
+    this.toneFilter = this.track(ctx.createBiquadFilter());
     this.toneFilter.type = 'lowshelf';
     this.toneFilter.frequency.value = 350;
-    this.toneFilter.gain.value = 1.5; // 저음 보강
+    this.toneFilter.gain.value = 1.5;
 
-    // 투명한 다이내믹스 컴프레서 (볼륨 균일화 및 피크 방지)
-    this.compressor = ctx.createDynamicsCompressor();
-    this.compressor.threshold.setValueAtTime(-12, ctx.currentTime);
-    this.compressor.knee.setValueAtTime(16, ctx.currentTime);
-    this.compressor.ratio.setValueAtTime(3.5, ctx.currentTime);
-    this.compressor.attack.setValueAtTime(0.005, ctx.currentTime);
-    this.compressor.release.setValueAtTime(0.12, ctx.currentTime);
+    // 피크 리미터: 볼륨 증폭 후 클리핑 방지. 평소 레벨에서는 거의 동작하지 않는다.
+    this.limiter = this.track(ctx.createDynamicsCompressor());
+    this.limiter.threshold.value = -1;
+    this.limiter.knee.value = 0;
+    this.limiter.ratio.value = 20;
+    this.limiter.attack.value = 0.003;
+    this.limiter.release.value = 0.1;
 
-    // Source -> Input Gain
+    // True bypass
+    this.sourceNode.connect(this.directGain);
+    this.directGain.connect(ctx.destination);
+
+    // Processed path
     this.sourceNode.connect(this.inputGain);
-
-    // 2. Vocal Cut (Center Cancellation) 서브그래프
     this.setupVocalCutGraph();
-
-    // 3. Precision Pitch Shifter 서브그래프
+    this.vocalProcessingOut.connect(this.bypassGain);
+    this.bypassGain.connect(this.mixBus);
     if (this.isWorkletLoaded) {
       this.setupWorkletPitchGraph();
     } else {
       this.setupPitchShifterGraph();
     }
-
-    // 4. Connect Audio Paths
-    // Direct Bypass -> Compressor
-    this.vocalProcessingOut.connect(this.bypassGain);
-    this.bypassGain.connect(this.compressor);
-
-    // Pitch Shifted -> Tone Filter -> Pitch Gain -> Compressor
     this.pitchGain.connect(this.toneFilter);
-    this.toneFilter.connect(this.compressor);
-
-    // Compressor -> Master Output -> Destination
-    this.compressor.connect(this.outputGain);
-    this.outputGain.connect(ctx.destination);
-
-    this.updatePitchInternal(1.0);
+    this.toneFilter.connect(this.mixBus);
+    this.mixBus.connect(this.volumeGain);
+    this.volumeGain.connect(this.limiter);
+    this.limiter.connect(this.processedGain);
+    this.processedGain.connect(ctx.destination);
   }
 
-  /** 정확한 비율 처리를 위한 STFT Phase Vocoder 경로 */
+  /** STFT phase-vocoder 워크릿 경로 */
   setupWorkletPitchGraph() {
-    const ctx = this.audioCtx;
-    this.workletNode = new AudioWorkletNode(ctx, 'karaoke-pitch-processor', {
+    this.workletNode = this.track(new AudioWorkletNode(this.audioCtx, 'karaoke-pitch-processor', {
       numberOfInputs: 1,
       numberOfOutputs: 1,
       outputChannelCount: [2]
-    });
+    }));
     this.vocalProcessingOut.connect(this.workletNode);
     this.workletNode.connect(this.pitchGain);
   }
 
-  /**
-   * 보컬 제거 (가라오케 모드) 그래프 설정
-   */
+  /** 보컬 제거: (L - R) 사이드 신호 + 저역(140Hz 이하) 복원 */
   setupVocalCutGraph() {
     const ctx = this.audioCtx;
-    
-    this.vocalProcessingIn = ctx.createGain();
-    this.vocalProcessingOut = ctx.createGain();
-    this.directPassGain = ctx.createGain();
-    this.vocalCutGain = ctx.createGain();
+    this.vocalProcessingIn = this.gain(0);
+    this.vocalProcessingOut = this.gain(1);
+    this.directPassGain = this.gain(1);
+    this.vocalCutGain = this.gain(0);
 
-    // Direct path
     this.inputGain.connect(this.directPassGain);
     this.directPassGain.connect(this.vocalProcessingOut);
 
-    // Vocal Cut path
-    this.splitterNode = ctx.createChannelSplitter(2);
-    this.mergerNode = ctx.createChannelMerger(2);
-    this.inverterNode = ctx.createGain();
-    this.inverterNode.gain.value = -1;
-
-    this.bassFilterNode = ctx.createBiquadFilter();
-    this.bassFilterNode.type = 'lowpass';
-    this.bassFilterNode.frequency.value = 140;
-
-    const leftGain = ctx.createGain();
+    const splitter = this.track(ctx.createChannelSplitter(2));
+    const merger = this.track(ctx.createChannelMerger(2));
+    const inverter = this.gain(-1);
+    const side = this.gain(1);
+    const bass = this.track(ctx.createBiquadFilter());
+    bass.type = 'lowpass';
+    bass.frequency.value = 140;
 
     this.inputGain.connect(this.vocalProcessingIn);
-    this.vocalProcessingIn.connect(this.splitterNode);
+    this.vocalProcessingIn.connect(splitter);
+    splitter.connect(side, 0);
+    splitter.connect(inverter, 1);
+    inverter.connect(side);
+    side.connect(merger, 0, 0);
+    side.connect(merger, 0, 1);
 
-    // (L - R) mono difference
-    this.splitterNode.connect(leftGain, 0);
-    this.splitterNode.connect(this.inverterNode, 1);
-    this.inverterNode.connect(leftGain);
+    this.vocalProcessingIn.connect(bass);
+    bass.connect(merger, 0, 0);
+    bass.connect(merger, 0, 1);
 
-    leftGain.connect(this.mergerNode, 0, 0);
-    leftGain.connect(this.mergerNode, 0, 1);
-
-    // Add bass back into merger
-    this.vocalProcessingIn.connect(this.bassFilterNode);
-    this.bassFilterNode.connect(this.mergerNode, 0, 0);
-    this.bassFilterNode.connect(this.mergerNode, 0, 1);
-
-    this.mergerNode.connect(this.vocalCutGain);
+    merger.connect(this.vocalCutGain);
     this.vocalCutGain.connect(this.vocalProcessingOut);
-
-    // 초기 상태
-    this.directPassGain.gain.value = 1.0;
-    this.vocalCutGain.gain.value = 0.0;
-    this.vocalProcessingIn.gain.value = 0.0;
   }
 
-  /**
-   * Precision Pitch Shifter 서브그래프
-   * 완벽한 선형 크로스페이드 및 클리핑 프리 지연 변조 엔진
-   */
+  /** 호환 엔진: 2-탭 변조 지연선 (AudioWorklet 미지원 환경용) */
   setupPitchShifterGraph() {
     const ctx = this.audioCtx;
     const bufferTime = this.bufferTime;
     const sampleRate = ctx.sampleRate;
     const length = Math.floor(bufferTime * sampleRate);
 
-    // 2개의 딜레이 경로
-    this.delay1 = ctx.createDelay(1.0);
-    this.delay2 = ctx.createDelay(1.0);
-    this.delayGain1 = ctx.createGain();
-    this.delayGain2 = ctx.createGain();
+    this.delay1 = this.track(ctx.createDelay(1.0));
+    this.delay2 = this.track(ctx.createDelay(1.0));
+    const delayGain1 = this.gain(0);
+    const delayGain2 = this.gain(0);
 
-    // LFO 변조 버퍼 생성
     const modBuffer1 = ctx.createBuffer(1, length, sampleRate);
     const modBuffer2 = ctx.createBuffer(1, length, sampleRate);
     const fadeBuffer1 = ctx.createBuffer(1, length, sampleRate);
     const fadeBuffer2 = ctx.createBuffer(1, length, sampleRate);
-
     const d1 = modBuffer1.getChannelData(0);
     const d2 = modBuffer2.getChannelData(0);
     const f1 = fadeBuffer1.getChannelData(0);
     const f2 = fadeBuffer2.getChannelData(0);
-
     for (let i = 0; i < length; i++) {
-      const t = i / length; // 0 to 1
-      d1[i] = t * bufferTime;
-      d2[i] = ((t + 0.5) % 1.0) * bufferTime;
-
-      // Triangular Equal-Power Crossfade (모든 구간 합이 1.0으로 일정)
-      f1[i] = t <= 0.5 ? 2.0 * t : 2.0 * (1.0 - t);
+      const t = i / length;
       const t2 = (t + 0.5) % 1.0;
+      d1[i] = t * bufferTime;
+      d2[i] = t2 * bufferTime;
+      f1[i] = t <= 0.5 ? 2.0 * t : 2.0 * (1.0 - t);
       f2[i] = t2 <= 0.5 ? 2.0 * t2 : 2.0 * (1.0 - t2);
     }
 
-    // Modulators (Loop Sources)
-    this.mod1 = ctx.createBufferSource();
-    this.mod2 = ctx.createBufferSource();
-    this.fade1 = ctx.createBufferSource();
-    this.fade2 = ctx.createBufferSource();
+    const loop = (buffer) => {
+      const src = this.track(ctx.createBufferSource());
+      src.buffer = buffer;
+      src.loop = true;
+      this.loopSources.push(src);
+      return src;
+    };
+    const mod1 = loop(modBuffer1);
+    const mod2 = loop(modBuffer2);
+    const fade1 = loop(fadeBuffer1);
+    const fade2 = loop(fadeBuffer2);
 
-    this.mod1.buffer = modBuffer1;
-    this.mod2.buffer = modBuffer2;
-    this.fade1.buffer = fadeBuffer1;
-    this.fade2.buffer = fadeBuffer2;
-
-    this.mod1.loop = true;
-    this.mod2.loop = true;
-    this.fade1.loop = true;
-    this.fade2.loop = true;
-
-    this.modGain1 = ctx.createGain();
-    this.modGain2 = ctx.createGain();
-
-    this.mod1.connect(this.modGain1);
-    this.mod2.connect(this.modGain2);
-
+    this.modGain1 = this.gain(0);
+    this.modGain2 = this.gain(0);
+    mod1.connect(this.modGain1);
+    mod2.connect(this.modGain2);
     this.modGain1.connect(this.delay1.delayTime);
     this.modGain2.connect(this.delay2.delayTime);
+    fade1.connect(delayGain1.gain);
+    fade2.connect(delayGain2.gain);
 
-    this.fade1.connect(this.delayGain1.gain);
-    this.fade2.connect(this.delayGain2.gain);
-
-    // Audio routing
     this.vocalProcessingOut.connect(this.delay1);
     this.vocalProcessingOut.connect(this.delay2);
+    this.delay1.connect(delayGain1);
+    this.delay2.connect(delayGain2);
+    delayGain1.connect(this.pitchGain);
+    delayGain2.connect(this.pitchGain);
 
-    this.delay1.connect(this.delayGain1);
-    this.delay2.connect(this.delayGain2);
-
-    this.delayGain1.connect(this.pitchGain);
-    this.delayGain2.connect(this.pitchGain);
-
-    // Start LFO
-    this.mod1.start(0);
-    this.mod2.start(0);
-    this.fade1.start(0);
-    this.fade2.start(0);
-
-    this.updatePitchInternal(1.0);
+    for (const src of this.loopSources) src.start(0);
   }
 
-  /**
-   * 반음 단위 키(Pitch) 설정 (-12 ~ +12)
-   */
-  setPitch(semitones) {
-    this.semitones = Math.max(-12, Math.min(12, Math.round(semitones)));
-    const pitchRatio = Math.pow(2, this.semitones / 12);
-    
-    if (this.audioCtx && this.audioCtx.state === 'suspended') {
-      this.audioCtx.resume().catch(() => {});
-    }
+  ramp(param, value, smooth = SMOOTH) {
+    const now = this.audioCtx.currentTime;
+    param.cancelScheduledValues(now);
+    param.setTargetAtTime(value, now, smooth);
+  }
 
-    this.updatePitchInternal(pitchRatio);
+  /** 원음과 완전히 같은 상태인지 (그래프를 통째로 우회 가능한지) */
+  isNeutral() {
+    return !this.enabled || (this.semitones === 0 && !this.vocalCutEnabled && this.volume === 1);
+  }
+
+  /** 모든 상태를 오디오 그래프에 반영 */
+  applyAll() {
+    if (!this.isInitialized || !this.audioCtx) return;
+    const neutral = this.isNeutral();
+    const shifting = this.enabled && this.semitones !== 0;
+    const vocalCut = this.enabled && this.vocalCutEnabled;
+
+    this.ramp(this.directGain.gain, neutral ? 1 : 0);
+    this.ramp(this.processedGain.gain, neutral ? 0 : LIMITER_MAKEUP_COMPENSATION);
+    this.ramp(this.bypassGain.gain, shifting ? 0 : 1);
+    this.ramp(this.pitchGain.gain, shifting ? 1 : 0);
+    this.ramp(this.volumeGain.gain, this.enabled ? this.volume : 1);
+    this.ramp(this.directPassGain.gain, vocalCut ? 0 : 1, 0.05);
+    this.ramp(this.vocalProcessingIn.gain, vocalCut ? 1 : 0, 0.05);
+    this.ramp(this.vocalCutGain.gain, vocalCut ? 1 : 0, 0.05);
+
+    this.applyPitchEngine(shifting);
+  }
+
+  applyPitchEngine(shifting) {
+    const pitchRatio = Math.pow(2, this.semitones / 12);
+    if (this.workletNode) {
+      // 키 0 / OFF 동안 워크릿은 페이드아웃 후 FFT 연산을 멈춘다 (CPU 절약).
+      this.workletNode.port.postMessage({ pitchRatio, active: shifting });
+      return;
+    }
+    if (!shifting || !this.delay1) return;
+    const bufferTime = this.bufferTime;
+    if (pitchRatio > 1.0) {
+      const delayOffset = bufferTime * (pitchRatio - 1.0);
+      this.ramp(this.delay1.delayTime, delayOffset);
+      this.ramp(this.delay2.delayTime, delayOffset);
+      this.ramp(this.modGain1.gain, -(pitchRatio - 1.0));
+      this.ramp(this.modGain2.gain, -(pitchRatio - 1.0));
+    } else {
+      this.ramp(this.delay1.delayTime, 0);
+      this.ramp(this.delay2.delayTime, 0);
+      this.ramp(this.modGain1.gain, 1.0 - pitchRatio);
+      this.ramp(this.modGain2.gain, 1.0 - pitchRatio);
+    }
+  }
+
+  /** 반음 단위 키 설정 (-12 ~ +12) */
+  setPitch(semitones) {
+    const value = Math.round(Number(semitones));
+    this.semitones = Number.isFinite(value) ? Math.max(-12, Math.min(12, value)) : 0;
+    if (this.audioCtx && this.audioCtx.state === 'suspended') this.audioCtx.resume().catch(() => {});
+    this.applyAll();
+    if (this.onPitchChange) this.onPitchChange();
     return this.semitones;
   }
 
-  /**
-   * 피치 내부 파라미터 갱신
-   */
-  updatePitchInternal(pitchRatio) {
-    if (!this.isInitialized || !this.audioCtx) return;
-
-    const ctx = this.audioCtx;
-    const now = ctx.currentTime;
-    const smoothTime = 0.03;
-    const bufferTime = this.bufferTime;
-
-    if (this.semitones === 0 || !this.enabled) {
-      // Bypass Mode: 100% 무손실 원음 직결 (음질 손실 0%, 레이턴시 0ms)
-      this.bypassGain.gain.cancelScheduledValues(now);
-      this.pitchGain.gain.cancelScheduledValues(now);
-      this.bypassGain.gain.setTargetAtTime(1.0, now, smoothTime);
-      this.pitchGain.gain.setTargetAtTime(0.0, now, smoothTime);
-    } else {
-      // Pitch Shifting Mode
-      this.bypassGain.gain.cancelScheduledValues(now);
-      this.pitchGain.gain.cancelScheduledValues(now);
-      this.bypassGain.gain.setTargetAtTime(0.0, now, smoothTime);
-      this.pitchGain.gain.setTargetAtTime(1.0, now, smoothTime);
-
-      if (this.workletNode) {
-        this.workletNode.port.postMessage({ pitchRatio });
-        return;
-      }
-
-      if (pitchRatio > 1.0) {
-        // [키 올리기 (Pitch Up)]
-        const delayOffset = bufferTime * (pitchRatio - 1.0);
-        const speed = -(pitchRatio - 1.0);
-
-        this.delay1.delayTime.cancelScheduledValues(now);
-        this.delay2.delayTime.cancelScheduledValues(now);
-        this.delay1.delayTime.setTargetAtTime(delayOffset, now, smoothTime);
-        this.delay2.delayTime.setTargetAtTime(delayOffset, now, smoothTime);
-
-        this.modGain1.gain.cancelScheduledValues(now);
-        this.modGain2.gain.cancelScheduledValues(now);
-        this.modGain1.gain.setTargetAtTime(speed, now, smoothTime);
-        this.modGain2.gain.setTargetAtTime(speed, now, smoothTime);
-      } else {
-        // [키 내리기 (Pitch Down)]
-        const speed = 1.0 - pitchRatio;
-
-        this.delay1.delayTime.cancelScheduledValues(now);
-        this.delay2.delayTime.cancelScheduledValues(now);
-        this.delay1.delayTime.setTargetAtTime(0.0, now, smoothTime);
-        this.delay2.delayTime.setTargetAtTime(0.0, now, smoothTime);
-
-        this.modGain1.gain.cancelScheduledValues(now);
-        this.modGain2.gain.cancelScheduledValues(now);
-        this.modGain1.gain.setTargetAtTime(speed, now, smoothTime);
-        this.modGain2.gain.setTargetAtTime(speed, now, smoothTime);
-      }
-    }
-  }
-
-  /**
-   * 템포(재생 속도) 설정 (0.5x ~ 1.5x)
-   */
+  /** 템포(재생 속도) 설정 (0.5x ~ 2.0x). 피치는 브라우저의 preservesPitch로 유지된다. */
   setTempo(tempo) {
-    this.tempo = Math.max(0.5, Math.min(2.0, parseFloat(tempo.toFixed(2))));
-    if (this.videoElement) {
-      this.videoElement.playbackRate = this.tempo;
-    }
+    const value = Number(tempo);
+    this.tempo = Number.isFinite(value) ? Math.max(0.5, Math.min(2.0, Math.round(value * 100) / 100)) : 1;
+    if (this.videoElement && this.enabled) this.videoElement.playbackRate = this.tempo;
     return this.tempo;
   }
 
-  /**
-   * 마스터 볼륨 부스트 (0.0 ~ 2.5x)
-   */
+  /** 유튜브 자체 속도 메뉴로 바뀐 재생 속도를 상태에 반영 */
+  handleRateChange() {
+    if (!this.enabled || !this.videoElement) return;
+    const rate = this.videoElement.playbackRate;
+    if (Math.abs(rate - this.tempo) < 0.001) return;
+    this.tempo = Math.round(rate * 100) / 100;
+    if (this.onExternalChange) this.onExternalChange(this.getState());
+  }
+
+  /** 마스터 볼륨 (0.0 ~ 2.5x) */
   setVolume(vol) {
-    this.volume = Math.max(0.0, Math.min(2.5, parseFloat(vol.toFixed(2))));
-    if (this.outputGain && this.audioCtx) {
-      const now = this.audioCtx.currentTime;
-      this.outputGain.gain.cancelScheduledValues(now);
-      this.outputGain.gain.setTargetAtTime(this.volume, now, 0.03);
-    }
+    const value = Number(vol);
+    this.volume = Number.isFinite(value) ? Math.max(0, Math.min(2.5, Math.round(value * 100) / 100)) : 1;
+    this.applyAll();
     return this.volume;
   }
 
-  /**
-   * 보컬 제거 (가라오케 모드) 토글
-   */
+  /** 보컬 제거 (가라오케 모드) */
   setVocalCut(enable) {
     this.vocalCutEnabled = !!enable;
-    if (!this.isInitialized || !this.audioCtx) return this.vocalCutEnabled;
-
-    const ctx = this.audioCtx;
-    const now = ctx.currentTime;
-    const smooth = 0.05;
-
-    if (this.vocalCutEnabled) {
-      this.directPassGain.gain.setTargetAtTime(0.0, now, smooth);
-      this.vocalProcessingIn.gain.setTargetAtTime(1.0, now, smooth);
-      this.vocalCutGain.gain.setTargetAtTime(1.0, now, smooth);
-    } else {
-      this.directPassGain.gain.setTargetAtTime(1.0, now, smooth);
-      this.vocalCutGain.gain.setTargetAtTime(0.0, now, smooth);
-      this.vocalProcessingIn.gain.setTargetAtTime(0.0, now, smooth);
-    }
+    this.applyAll();
     return this.vocalCutEnabled;
   }
 
-  /**
-   * 마스터 ON/OFF 설정
-   */
+  /** 마스터 ON/OFF: OFF면 원음 직결 + 재생 속도 1.0 */
   setEnabled(enabled) {
     this.enabled = !!enabled;
-    if (!this.isInitialized || !this.audioCtx) return this.enabled;
-
-    const ctx = this.audioCtx;
-    const now = ctx.currentTime;
-    const smooth = 0.03;
-
-    if (!this.enabled) {
-      this.bypassGain.gain.setTargetAtTime(1.0, now, smooth);
-      this.pitchGain.gain.setTargetAtTime(0.0, now, smooth);
-      this.directPassGain.gain.setTargetAtTime(1.0, now, smooth);
-      this.vocalCutGain.gain.setTargetAtTime(0.0, now, smooth);
-      if (this.videoElement) {
-        this.videoElement.playbackRate = 1.0;
-      }
-    } else {
-      this.setPitch(this.semitones);
-      this.setTempo(this.tempo);
-      this.setVolume(this.volume);
-      this.setVocalCut(this.vocalCutEnabled);
-    }
+    if (this.videoElement) this.videoElement.playbackRate = this.enabled ? this.tempo : 1.0;
+    this.applyAll();
     return this.enabled;
   }
 
-  /**
-   * 상태 리셋 (원키 0, 템포 1.0, 보컬컷 OFF)
-   */
+  /** 상태 리셋 (원키 0, 템포 1.0, 볼륨 100%, 보컬컷 OFF) */
   reset() {
-    this.setPitch(0);
+    this.semitones = 0;
+    this.volume = 1;
+    this.vocalCutEnabled = false;
     this.setTempo(1.0);
-    this.setVolume(1.0);
-    this.setVocalCut(false);
+    this.applyAll();
+    if (this.onPitchChange) this.onPitchChange();
     return this.getState();
   }
 
-  /**
-   * 현재 상태 반환
-   */
   getState() {
     return {
       enabled: this.enabled,
@@ -533,5 +429,4 @@ class AudioPitchShifter {
   }
 }
 
-// 전역 인스턴스 등록
 window.__KaraokePitchShifter = window.__KaraokePitchShifter || new AudioPitchShifter();

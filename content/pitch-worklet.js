@@ -1,9 +1,19 @@
 /*
- * STFT phase-vocoder AudioWorklet.
- * The processor uses fractional-bin redistribution, rather than rounding a
- * target bin, so a requested equal-temperament ratio is not quantized to the
- * FFT-bin spacing.
+ * Peak-locked phase-vocoder pitch shifter (AudioWorklet).
+ *
+ * Each spectral peak and its surrounding region (the window main lobe) is
+ * moved as a unit by an integer number of bins, and a per-peak phase rotation
+ * accumulated across frames sets the exact output frequency
+ * (Laroche & Dolson, "New phase-vocoder techniques for pitch-shifting", 1999).
+ *
+ * Moving whole regions keeps the relative phases inside a lobe intact, so the
+ * resynthesised frame keeps its windowed shape and loudness. The previous
+ * per-bin design gave every bin an independent phase accumulator; that broke
+ * the lobe's phase pattern and lost 3-24 dB depending on the shift.
  */
+const TWO_PI = 2 * Math.PI;
+const IDLE_AFTER_SECONDS = 0.5; // keep running while the output gain fades out
+
 class PitchProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -11,24 +21,33 @@ class PitchProcessor extends AudioWorkletProcessor {
     this.hop = 512;
     this.half = this.size >> 1;
     this.ratio = 1;
+    this.active = true;
+    this.idleCountdown = 0;
+    this.idle = false;
+    this.needsReset = false;
     this.channels = [];
     this.window = new Float32Array(this.size);
     this.bitReverse = new Uint16Array(this.size);
     this.cosine = new Float32Array(this.half);
     this.sine = new Float32Array(this.half);
+    // Shared per-frame scratch (channels are processed sequentially).
+    this.magnitude = new Float32Array(this.half + 1);
+    this.phase = new Float32Array(this.half + 1);
+    this.peaks = new Int32Array(this.half + 1);
 
+    const bits = Math.log2(this.size);
     for (let i = 0; i < this.size; i++) {
-      this.window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / this.size));
+      this.window[i] = 0.5 * (1 - Math.cos((TWO_PI * i) / this.size));
       let value = i;
       let reversed = 0;
-      for (let bit = 0; bit < 11; bit++) {
+      for (let bit = 0; bit < bits; bit++) {
         reversed = (reversed << 1) | (value & 1);
         value >>= 1;
       }
       this.bitReverse[i] = reversed;
     }
     for (let i = 0; i < this.half; i++) {
-      const angle = (2 * Math.PI * i) / this.size;
+      const angle = (TWO_PI * i) / this.size;
       this.cosine[i] = Math.cos(angle);
       this.sine[i] = Math.sin(angle);
     }
@@ -36,6 +55,15 @@ class PitchProcessor extends AudioWorkletProcessor {
     this.port.onmessage = ({ data }) => {
       if (Number.isFinite(data.pitchRatio) && data.pitchRatio > 0) {
         this.ratio = data.pitchRatio;
+      }
+      if (typeof data.active === 'boolean') {
+        this.active = data.active;
+        if (data.active) {
+          if (this.idle) this.needsReset = true; // clear stale history in process()
+          this.idle = false;
+        } else {
+          this.idleCountdown = Math.ceil(IDLE_AFTER_SECONDS * sampleRate);
+        }
       }
     };
   }
@@ -47,16 +75,25 @@ class PitchProcessor extends AudioWorkletProcessor {
       output: new Float32Array(this.size * 4),
       outputPos: 0,
       lastPhase: new Float32Array(this.half + 1),
-      // Phase belongs to an analysed source partial, not to a destination
-      // FFT bin. Several partials may land in one destination bin when
-      // shifting down; sharing a phase accumulator there was the source of
-      // large pitch errors for negative semitone settings.
-      sourcePhase: new Float32Array(this.half + 1),
+      // Phase rotation of the region that owned each bin in the previous
+      // frame; lets a peak continue its rotation when it drifts by a bin.
+      rotation: new Float32Array(this.half + 1),
+      nextRotation: new Float32Array(this.half + 1),
       real: new Float32Array(this.size),
       imag: new Float32Array(this.size),
       synthReal: new Float32Array(this.size),
       synthImag: new Float32Array(this.size)
     };
+  }
+
+  /** Clear history in place (no allocation on the real-time thread). */
+  resetState(state) {
+    state.input.fill(0);
+    state.inputCount = 0;
+    state.output.fill(0);
+    state.outputPos = 0;
+    state.lastPhase.fill(0);
+    state.rotation.fill(0);
   }
 
   fft(real, imag, inverse) {
@@ -97,9 +134,9 @@ class PitchProcessor extends AudioWorkletProcessor {
   }
 
   processFrame(state) {
-    const { size, half, hop, ratio, window } = this;
-    const expectedAdvance = (2 * Math.PI * hop) / size;
-    const { real, imag, synthReal, synthImag } = state;
+    const { size, half, hop, ratio, window, magnitude, phase, peaks } = this;
+    const { real, imag, synthReal, synthImag, lastPhase, rotation, nextRotation } = state;
+    const advancePerBin = (TWO_PI * hop) / size;
 
     for (let i = 0; i < size; i++) {
       real[i] = state.input[i] * window[i];
@@ -109,35 +146,61 @@ class PitchProcessor extends AudioWorkletProcessor {
     }
     this.fft(real, imag, false);
 
+    let maxMagnitude = 0;
     for (let bin = 0; bin <= half; bin++) {
-      const magnitude = Math.hypot(real[bin], imag[bin]);
-      if (magnitude < 1e-12) continue;
+      magnitude[bin] = Math.hypot(real[bin], imag[bin]);
+      phase[bin] = Math.atan2(imag[bin], real[bin]);
+      if (magnitude[bin] > maxMagnitude) maxMagnitude = magnitude[bin];
+    }
 
-      const phase = Math.atan2(imag[bin], real[bin]);
-      let phaseDelta = phase - state.lastPhase[bin] - bin * expectedAdvance;
-      state.lastPhase[bin] = phase;
-      phaseDelta -= 2 * Math.PI * Math.round(phaseDelta / (2 * Math.PI));
-      const instantaneousFrequency = (bin * expectedAdvance + phaseDelta) / hop;
-      const target = bin * ratio;
-      const lower = Math.floor(target);
-      const upperWeight = target - lower;
-      const targetPhase = (state.sourcePhase[bin] += instantaneousFrequency * ratio * hop);
+    // Local maxima above a -100 dB floor relative to the frame's loudest bin.
+    const floor = maxMagnitude * 1e-5;
+    let peakCount = 0;
+    for (let bin = 1; bin < half; bin++) {
+      const m = magnitude[bin];
+      if (m > floor && m > magnitude[bin - 1] && m >= magnitude[bin + 1]) {
+        peaks[peakCount++] = bin;
+      }
+    }
 
-      // Preserve the exact fractional target frequency by distributing energy
-      // between adjacent bins instead of rounding to one of them. Avoid
-      // temporary arrays here: this runs on Chrome's real-time audio thread.
-      const phaseCosine = Math.cos(targetPhase);
-      const phaseSine = Math.sin(targetPhase);
-      if (lower >= 0 && lower <= half) {
-        const weight = 1 - upperWeight;
-        synthReal[lower] += magnitude * weight * phaseCosine;
-        synthImag[lower] += magnitude * weight * phaseSine;
+    nextRotation.fill(0);
+    let regionStart = 0;
+    for (let p = 0; p < peakCount; p++) {
+      const peak = peaks[p];
+      // Region boundary: the lowest bin between this peak and the next.
+      let regionEnd = half;
+      if (p + 1 < peakCount) {
+        regionEnd = peak;
+        for (let bin = peak + 1; bin < peaks[p + 1]; bin++) {
+          if (magnitude[bin] < magnitude[regionEnd]) regionEnd = bin;
+        }
       }
-      const upper = lower + 1;
-      if (upperWeight > 0 && upper <= half) {
-        synthReal[upper] += magnitude * upperWeight * phaseCosine;
-        synthImag[upper] += magnitude * upperWeight * phaseSine;
+
+      // True frequency of the peak (in bins) from the inter-frame phase advance.
+      let delta = phase[peak] - lastPhase[peak] - peak * advancePerBin;
+      delta -= TWO_PI * Math.round(delta / TWO_PI);
+      const frequency = peak + delta / advancePerBin;
+      const shift = frequency * (ratio - 1);
+      const binShift = Math.round(shift);
+
+      let theta = rotation[peak] + shift * advancePerBin;
+      theta -= TWO_PI * Math.round(theta / TWO_PI);
+      const rotCos = Math.cos(theta);
+      const rotSin = Math.sin(theta);
+
+      for (let bin = regionStart; bin <= regionEnd; bin++) {
+        nextRotation[bin] = theta;
+        const target = bin + binShift;
+        if (target < 0 || target > half) continue;
+        synthReal[target] += real[bin] * rotCos - imag[bin] * rotSin;
+        synthImag[target] += real[bin] * rotSin + imag[bin] * rotCos;
       }
+      regionStart = regionEnd + 1;
+    }
+
+    for (let bin = 0; bin <= half; bin++) {
+      lastPhase[bin] = phase[bin];
+      rotation[bin] = nextRotation[bin];
     }
 
     for (let bin = 1; bin < half; bin++) {
@@ -160,9 +223,24 @@ class PitchProcessor extends AudioWorkletProcessor {
     const output = outputs[0];
     if (!input || !output) return true;
 
+    // Idle while the pitch path is muted (key 0 / power off): no FFT work.
+    if (!this.active && !this.idle) {
+      this.idleCountdown -= output[0] ? output[0].length : 128;
+      if (this.idleCountdown <= 0) this.idle = true;
+    }
+    if (this.idle) {
+      for (let channel = 0; channel < output.length; channel++) output[channel].fill(0);
+      return true;
+    }
+
+    if (this.needsReset) {
+      for (const state of this.channels) if (state) this.resetState(state);
+      this.needsReset = false;
+    }
+
     for (let channel = 0; channel < output.length; channel++) {
       if (!this.channels[channel]) this.channels[channel] = this.createState();
-      const source = input[Math.min(channel, input.length - 1)];
+      const source = input.length ? input[Math.min(channel, input.length - 1)] : null;
       const destination = output[channel];
       const state = this.channels[channel];
 
