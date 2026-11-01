@@ -1,503 +1,375 @@
-/* YouTube Karaoke Controller Overlay CSS */
+/* Tono — in-player overlay. Always dark (it sits on top of video). */
 
-:root {
-  --yk-primary: #ff2a6d;
-  --yk-secondary: #05d9e8;
-  --yk-accent: #9b51e0;
-  --yk-bg-dark: rgba(18, 19, 28, 0.92);
-  --yk-bg-panel: rgba(28, 30, 44, 0.85);
-  --yk-text-main: #ffffff;
-  --yk-text-sub: #a0a5ba;
-  --yk-border: rgba(255, 255, 255, 0.14);
-  --yk-shadow: 0 12px 36px rgba(0, 0, 0, 0.6), 0 0 20px rgba(5, 217, 232, 0.15);
-  --yk-radius: 14px;
-}
-
-/* Base Remote Controller Box */
 #yk-karaoke-overlay {
+  --yk-accent: #8b94f5;
+  --yk-bg: rgba(20, 20, 23, 0.86);
+  --yk-surface: rgba(255, 255, 255, 0.06);
+  --yk-surface-hover: rgba(255, 255, 255, 0.11);
+  --yk-border: rgba(255, 255, 255, 0.1);
+  --yk-text: #f2f2f4;
+  --yk-text-sub: rgba(242, 242, 244, 0.6);
+  --yk-text-faint: rgba(242, 242, 244, 0.38);
+
   position: absolute;
-  top: 60px;
-  right: 24px;
-  width: 290px;
-  background: var(--yk-bg-dark);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  top: 56px;
+  right: 20px;
+  width: 248px;
+  padding: 10px 12px 12px;
+  background: var(--yk-bg);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
   border: 1px solid var(--yk-border);
-  border-radius: var(--yk-radius);
-  box-shadow: var(--yk-shadow);
-  color: var(--yk-text-main);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  font-size: 13px;
+  border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  color: var(--yk-text);
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", sans-serif;
+  -webkit-font-smoothing: antialiased;
   z-index: 2147483647;
   user-select: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  overflow: hidden;
+  box-sizing: border-box;
+}
+
+#yk-karaoke-overlay *,
+#yk-karaoke-overlay *::before,
+#yk-karaoke-overlay *::after {
+  box-sizing: border-box;
 }
 
 #yk-karaoke-overlay.yk-hidden {
   display: none !important;
 }
 
-/* Minimized Floating Badge Mode */
+#yk-karaoke-overlay button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+#yk-karaoke-overlay button:focus-visible {
+  outline: 2px solid var(--yk-accent);
+  outline-offset: 2px;
+}
+
+#yk-karaoke-overlay svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Header (drag handle) */
+.yk-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  cursor: grab;
+}
+
+.yk-header:active {
+  cursor: grabbing;
+}
+
+.yk-title {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.yk-status {
+  font-size: 11px;
+  color: var(--yk-text-faint);
+}
+
+.yk-header-controls {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+
+#yk-karaoke-overlay .yk-icon-btn {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--yk-text-faint);
+}
+
+#yk-karaoke-overlay .yk-icon-btn:hover {
+  color: var(--yk-text);
+  background: var(--yk-surface);
+}
+
+#yk-karaoke-overlay .yk-power-toggle.yk-on {
+  color: var(--yk-accent);
+}
+
+/* Body */
+.yk-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 #yk-karaoke-overlay.yk-minimized {
   width: auto;
-  border-radius: 30px;
-  background: var(--yk-bg-dark);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.5), 0 0 15px rgba(255, 42, 109, 0.3);
+  padding-bottom: 2px;
+}
+
+#yk-karaoke-overlay.yk-minimized .yk-panel-body {
+  display: none;
 }
 
 #yk-karaoke-overlay.yk-power-off .yk-panel-body {
   opacity: 0.35;
   pointer-events: none;
-  filter: grayscale(0.8);
 }
 
-.yk-power-toggle {
-  color: var(--yk-secondary) !important;
-  font-weight: 800;
-}
-
-.yk-power-toggle:hover {
-  filter: drop-shadow(0 0 6px var(--yk-secondary));
-}
-
-#yk-karaoke-overlay.yk-minimized .yk-panel-body,
-#yk-karaoke-overlay.yk-minimized .yk-panel-footer {
-  display: none;
-}
-
-#yk-karaoke-overlay.yk-minimized .yk-drag-handle {
-  padding: 8px 14px;
-}
-
-/* Drag Handle / Header */
-.yk-drag-handle {
+/* Key */
+.yk-key-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 14px;
-  background: linear-gradient(90deg, rgba(255, 42, 109, 0.15), rgba(5, 217, 232, 0.15));
-  border-bottom: 1px solid var(--yk-border);
-  cursor: grab;
+  padding: 8px;
+  border-radius: 10px;
+  background: var(--yk-surface);
 }
 
-.yk-drag-handle:active {
-  cursor: grabbing;
+#yk-karaoke-overlay .yk-step {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--yk-surface);
+  border: 1px solid var(--yk-border);
 }
 
-.yk-title-area {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.3px;
-  color: #fff;
+#yk-karaoke-overlay .yk-step:hover {
+  background: var(--yk-surface-hover);
 }
 
-.yk-mic-icon {
-  font-size: 16px;
-  filter: drop-shadow(0 0 4px var(--yk-primary));
+#yk-karaoke-overlay .yk-step:active {
+  transform: scale(0.95);
 }
 
-.yk-header-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.yk-icon-btn {
-  background: transparent;
-  border: none;
-  color: var(--yk-text-sub);
-  font-size: 14px;
-  cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 6px;
-  transition: all 0.15s ease;
-  line-height: 1;
-}
-
-.yk-icon-btn:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.15);
-}
-
-/* Panel Body */
-.yk-panel-body {
-  padding: 14px;
+.yk-key-readout {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-/* Pitch Display Section */
-.yk-pitch-display-box {
-  background: var(--yk-bg-panel);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  padding: 10px;
-  text-align: center;
-  position: relative;
-  overflow: hidden;
-}
-
-.yk-pitch-display-box::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: linear-gradient(90deg, var(--yk-primary), var(--yk-secondary));
-}
-
-.yk-pitch-label {
-  font-size: 11px;
-  color: var(--yk-text-sub);
-  text-transform: uppercase;
-  letter-spacing: 0.8px;
-  margin-bottom: 2px;
-}
-
-.yk-pitch-value-wrap {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 4px;
+  align-items: center;
 }
 
 .yk-pitch-value {
-  font-size: 26px;
-  font-weight: 800;
-  color: var(--yk-secondary);
-  text-shadow: 0 0 12px rgba(5, 217, 232, 0.6);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
-  transition: all 0.15s ease;
 }
 
-.yk-pitch-value.pitch-up {
-  color: var(--yk-secondary);
-  text-shadow: 0 0 12px rgba(5, 217, 232, 0.8);
-}
-
+.yk-pitch-value.pitch-up,
 .yk-pitch-value.pitch-down {
-  color: var(--yk-primary);
-  text-shadow: 0 0 12px rgba(255, 42, 109, 0.8);
-}
-
-.yk-pitch-value.pitch-zero {
-  color: #fff;
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+  color: var(--yk-accent);
 }
 
 .yk-pitch-unit {
-  font-size: 12px;
-  font-weight: 600;
+  margin-top: 3px;
+  font-size: 10.5px;
   color: var(--yk-text-sub);
 }
 
-/* Key Control Button Grid */
-.yk-btn-group-main {
+/* Chips */
+.yk-chips {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 8px;
-}
-
-.yk-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  grid-template-columns: 1fr auto 1fr;
   gap: 4px;
-  padding: 8px 0;
-  border-radius: 8px;
-  font-weight: 700;
-  font-size: 13px;
-  border: 1px solid var(--yk-border);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--yk-text-main);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  outline: none;
 }
 
-.yk-btn:hover {
-  background: rgba(255, 255, 255, 0.14);
-  transform: translateY(-1px);
-}
-
-.yk-btn:active {
-  transform: translateY(1px);
-}
-
-.yk-btn-down {
-  border-color: rgba(255, 42, 109, 0.4);
-  background: rgba(255, 42, 109, 0.12);
-  color: #ff6596;
-}
-
-.yk-btn-down:hover {
-  background: rgba(255, 42, 109, 0.28);
-  color: #fff;
-  box-shadow: 0 0 10px rgba(255, 42, 109, 0.4);
-}
-
-.yk-btn-up {
-  border-color: rgba(5, 217, 232, 0.4);
-  background: rgba(5, 217, 232, 0.12);
-  color: #4eedf8;
-}
-
-.yk-btn-up:hover {
-  background: rgba(5, 217, 232, 0.28);
-  color: #fff;
-  box-shadow: 0 0 10px rgba(5, 217, 232, 0.4);
-}
-
-.yk-btn-reset {
-  background: rgba(255, 255, 255, 0.08);
-  font-size: 12px;
-}
-
-/* Preset Buttons (남→여 / 여→남) */
-.yk-preset-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.yk-btn-preset {
+#yk-karaoke-overlay .yk-chip {
+  padding: 5px 6px;
+  border-radius: 6px;
   font-size: 11px;
-  padding: 6px 4px;
-  background: rgba(155, 81, 224, 0.15);
-  border-color: rgba(155, 81, 224, 0.35);
-  color: #d1a5ff;
+  white-space: nowrap;
+  color: var(--yk-text-sub);
+  border: 1px solid var(--yk-border);
 }
 
-.yk-btn-preset:hover {
-  background: rgba(155, 81, 224, 0.35);
-  color: #fff;
-  box-shadow: 0 0 10px rgba(155, 81, 224, 0.4);
+#yk-karaoke-overlay .yk-chip:hover {
+  color: var(--yk-text);
+  background: var(--yk-surface);
 }
 
-/* Sliders Section (Tempo & Volume) */
-.yk-slider-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: var(--yk-bg-panel);
-  padding: 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+#yk-karaoke-overlay .yk-chip-reset {
+  color: var(--yk-accent);
+  font-weight: 600;
 }
 
-.yk-slider-row {
+/* Rows */
+.yk-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
+  min-height: 24px;
 }
 
-.yk-slider-label {
-  font-size: 11px;
+.yk-row-label {
+  width: 30px;
+  flex-shrink: 0;
   color: var(--yk-text-sub);
-  width: 50px;
 }
 
-.yk-range-slider {
-  flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.18);
-  outline: none;
-  -webkit-appearance: none;
-  cursor: pointer;
-}
-
-.yk-range-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--yk-secondary);
-  box-shadow: 0 0 6px var(--yk-secondary);
-  cursor: pointer;
-  transition: transform 0.1s ease;
-}
-
-.yk-range-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-}
-
-.yk-slider-val {
-  font-size: 11px;
-  font-weight: 600;
+.yk-row-value {
   width: 38px;
   text-align: right;
-  color: #fff;
+  color: var(--yk-text-sub);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Vocal Cut & Toggle Row */
 .yk-toggle-row {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
-  background: var(--yk-bg-panel);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
 }
 
-.yk-toggle-label {
-  font-size: 12px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.yk-toggle-row .yk-row-label {
+  width: auto;
 }
 
-.yk-badge-pro {
-  font-size: 9px;
-  background: linear-gradient(90deg, var(--yk-primary), var(--yk-accent));
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-weight: 700;
+/* Range */
+#yk-karaoke-overlay .yk-range {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
-/* Switch Switcher */
+#yk-karaoke-overlay .yk-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+#yk-karaoke-overlay .yk-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+/* Switch */
 .yk-switch {
   position: relative;
-  display: inline-block;
-  width: 36px;
-  height: 20px;
+  display: inline-flex;
 }
 
 .yk-switch input {
+  position: absolute;
+  inset: 0;
   opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.yk-slider-round {
-  position: absolute;
+  margin: 0;
   cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(255, 255, 255, 0.2);
-  transition: 0.25s;
-  border-radius: 20px;
 }
 
-.yk-slider-round:before {
-  position: absolute;
+.yk-track {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.18);
+  transition: background 0.15s ease;
+}
+
+.yk-track::after {
   content: "";
-  height: 14px;
+  position: absolute;
+  top: 2px;
+  left: 2px;
   width: 14px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  transition: 0.25s;
+  height: 14px;
   border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
 }
 
-input:checked + .yk-slider-round {
-  background: linear-gradient(90deg, var(--yk-primary), var(--yk-accent));
-  box-shadow: 0 0 8px rgba(255, 42, 109, 0.6);
+.yk-switch input:checked + .yk-track {
+  background: var(--yk-accent);
 }
 
-input:checked + .yk-slider-round:before {
-  transform: translateX(16px);
+.yk-switch input:checked + .yk-track::after {
+  transform: translateX(12px);
 }
 
-/* Footer & Shortcut hints */
-.yk-panel-footer {
-  padding: 8px 14px;
-  background: rgba(0, 0, 0, 0.2);
-  border-top: 1px solid var(--yk-border);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 11px;
-  color: var(--yk-text-sub);
-}
-
-.yk-shortcut-hint {
-  display: flex;
-  gap: 4px;
-}
-
-.yk-kbd {
-  background: rgba(255, 255, 255, 0.12);
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-family: monospace;
-  font-size: 10px;
-  color: #eee;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-}
-
-/* OSD (On Screen Display Notification) */
+/* OSD toast */
 #yk-osd-toast {
   position: absolute;
-  top: 15%;
+  top: 12%;
   left: 50%;
-  transform: translate(-50%, -50%) scale(0.9);
-  background: rgba(18, 19, 28, 0.92);
-  backdrop-filter: blur(16px);
-  border: 2px solid var(--yk-secondary);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 30px rgba(5, 217, 232, 0.4);
-  color: #fff;
-  padding: 16px 36px;
-  border-radius: 20px;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  z-index: 2147483647;
-  pointer-events: none;
+  transform: translate(-50%, -6px);
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(20, 20, 23, 0.82);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  color: #f2f2f4;
+  font: 600 15px/1.3 -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Segoe UI", "Malgun Gothic", sans-serif;
+  letter-spacing: -0.01em;
+  white-space: pre;
+  font-variant-numeric: tabular-nums;
   opacity: 0;
-  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-#yk-osd-toast.yk-osd-down {
-  border-color: var(--yk-primary);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8), 0 0 30px rgba(255, 42, 109, 0.4);
+  pointer-events: none;
+  z-index: 2147483647;
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
 #yk-osd-toast.yk-osd-show {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
+  transform: translate(-50%, 0);
 }
 
-/* YouTube In-Player Mini Controller (하단 플레이어 컨트롤바 버튼) */
-.ytp-button.yk-ytp-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  vertical-align: top;
+/* YouTube control-bar button */
+.yk-ytp-btn {
   position: relative;
-  width: 48px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #05d9e8;
-  text-shadow: 0 0 6px rgba(5, 217, 232, 0.6);
+  background: none;
+  border: none;
+  padding: 0;
+  opacity: 0.9;
 }
 
 .yk-ytp-btn:hover {
-  color: #fff;
+  opacity: 1;
 }
 
 .yk-ytp-badge {
-  background: rgba(255, 42, 109, 0.85);
-  color: #fff;
-  font-size: 10px;
-  padding: 1px 4px;
-  border-radius: 8px;
   position: absolute;
   top: 8px;
-  right: 4px;
-  font-weight: 800;
+  right: 2px;
+  min-width: 16px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #4f5bd5;
+  color: #fff;
+  font: 600 10px/14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-align: center;
+  pointer-events: none;
+}
+
+.yk-ytp-badge[hidden] {
+  display: none;
+}
+
+.yk-ytp-badge.yk-off {
+  background: rgba(255, 255, 255, 0.3);
 }

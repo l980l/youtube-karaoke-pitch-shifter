@@ -2,18 +2,6 @@
  * Popup Script - YouTube Karaoke Key Shifter
  */
 
-const DEFAULT_CONFIG = {
-  enabled: true,
-  shortcuts: {
-    pitchDown: { key: '[', code: 'BracketLeft', altKey: false, ctrlKey: false, shiftKey: false, label: '[' },
-    pitchUp: { key: ']', code: 'BracketRight', altKey: false, ctrlKey: false, shiftKey: false, label: ']' },
-    pitchReset: { key: '0', code: 'Digit0', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + 0' },
-    toggleUI: { key: 'm', code: 'KeyM', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + M' },
-    toggleVocalCut: { key: 'v', code: 'KeyV', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + V' },
-    togglePower: { key: 'p', code: 'KeyP', altKey: true, ctrlKey: false, shiftKey: false, label: 'Alt + P' }
-  }
-};
-
 document.addEventListener('DOMContentLoaded', async () => {
   // Elements
   const popupContainer = document.querySelector('.popup-container');
@@ -38,8 +26,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const btnStepDown = document.getElementById('btn-step-down');
   const btnStepUp = document.getElementById('btn-step-up');
-  const btnPitchDown = document.getElementById('btn-pitch-down');
-  const btnPitchUp = document.getElementById('btn-pitch-up');
   const btnPitchReset = document.getElementById('btn-pitch-reset');
 
   const presetM2F = document.getElementById('preset-m2f');
@@ -57,9 +43,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const chkVocalCut = document.getElementById('chk-vocal-cut');
   const btnResetShortcuts = document.getElementById('btn-reset-shortcuts');
+  const chkRememberKey = document.getElementById('chk-remember-key');
 
   let activeTabId = null;
-  let currentConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG));
+  let currentConfig = mergeKaraokeConfig(null);
   let listeningAction = null;
 
   // 1. 설정 로드
@@ -79,14 +66,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   tabBtnRemote.addEventListener('click', () => {
     tabBtnRemote.classList.add('active');
     tabBtnSettings.classList.remove('active');
-    tabContentRemote.style.display = 'block';
+    tabContentRemote.style.display = 'flex';
     tabContentSettings.style.display = 'none';
   });
 
   tabBtnSettings.addEventListener('click', () => {
     tabBtnSettings.classList.add('active');
     tabBtnRemote.classList.remove('active');
-    tabContentSettings.style.display = 'block';
+    tabContentSettings.style.display = 'flex';
     tabContentRemote.style.display = 'none';
   });
 
@@ -101,19 +88,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   function updatePowerUI(enabled) {
     chkMasterPower.checked = enabled;
     popupContainer.classList.toggle('power-off', !enabled);
-    powerStatusLabel.innerText = enabled ? '작동 중 (ON)' : '꺼짐 (OFF)';
-    powerStatusLabel.style.color = enabled ? 'var(--secondary)' : '#777';
+    powerStatusLabel.innerText = enabled ? '켜짐' : '꺼짐';
   }
 
   // 5. 설정 저장 및 로드
   async function loadConfig() {
     return new Promise((resolve) => {
       chrome.storage.local.get(['karaokeConfig'], (res) => {
-        if (res && res.karaokeConfig) {
-          currentConfig = Object.assign({}, DEFAULT_CONFIG, res.karaokeConfig);
-          if (!currentConfig.shortcuts) currentConfig.shortcuts = DEFAULT_CONFIG.shortcuts;
-        }
+        currentConfig = mergeKaraokeConfig(res && res.karaokeConfig);
         updatePowerUI(currentConfig.enabled);
+        chkRememberKey.checked = currentConfig.rememberKeyPerVideo;
         renderShortcutLabels();
         resolve(currentConfig);
       });
@@ -169,7 +153,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const prevBtn = document.getElementById(`bind-${listeningAction}`);
       if (prevBtn) {
         prevBtn.classList.remove('listening');
-        prevBtn.innerText = currentConfig.shortcuts[listeningAction].label;
+        const binding = currentConfig.shortcuts[listeningAction];
+        prevBtn.innerText = binding ? binding.label : '-';
       }
       listeningAction = null;
     }
@@ -197,15 +182,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (e.shiftKey) parts.push('Shift');
     if (e.metaKey) parts.push('Cmd');
 
-    let keyName = e.key.toUpperCase();
-    if (e.key === ' ') keyName = 'Space';
-    if (e.key === 'ArrowUp') keyName = 'Up';
-    if (e.key === 'ArrowDown') keyName = 'Down';
-    if (e.key === 'ArrowLeft') keyName = 'Left';
-    if (e.key === 'ArrowRight') keyName = 'Right';
-    if (e.key === '[') keyName = '[';
-    if (e.key === ']') keyName = ']';
-    if (e.key === '\\') keyName = '\\';
+    // 물리 키(e.code) 기준 이름: macOS에서 Alt+V가 '√'로 표시되는 문제 방지
+    const CODE_NAMES = { Space: 'Space', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+      BracketLeft: '[', BracketRight: ']', Backslash: '\\', Comma: ',', Period: '.', Slash: '/',
+      Semicolon: ';', Quote: "'", Minus: '-', Equal: '=', Backquote: '`' };
+    let keyName = CODE_NAMES[e.code] ||
+      (/^Key[A-Z]$/.test(e.code) ? e.code.slice(3) : /^(Digit|Numpad)\d$/.test(e.code) ? e.code.slice(-1) : e.key.toUpperCase());
 
     parts.push(keyName);
     const label = parts.join(' + ');
@@ -216,6 +198,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       altKey: e.altKey,
       ctrlKey: e.ctrlKey,
       shiftKey: e.shiftKey,
+      metaKey: e.metaKey,
       label: label
     };
 
@@ -232,9 +215,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderShortcutLabels();
   });
 
+  // 곡별 키 기억 토글
+  chkRememberKey.addEventListener('change', async (e) => {
+    currentConfig.rememberKeyPerVideo = e.target.checked;
+    await saveConfig();
+  });
+
   // 단축키 기본값 복원
   btnResetShortcuts.addEventListener('click', async () => {
-    currentConfig.shortcuts = JSON.parse(JSON.stringify(DEFAULT_CONFIG.shortcuts));
+    currentConfig.shortcuts = mergeKaraokeConfig(null).shortcuts;
     await saveConfig();
     renderShortcutLabels();
   });
@@ -276,19 +265,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (semi > 0) {
       pitchNumber.innerText = `+${semi}`;
       pitchNumber.classList.add('up');
-      pitchTag.innerText = `♯ ${semi}키 올림 (SHARP)`;
+      pitchTag.innerText = `${semi}키 올림`;
     } else if (semi < 0) {
-      pitchNumber.innerText = `${semi}`;
+      pitchNumber.innerText = `−${Math.abs(semi)}`;
       pitchNumber.classList.add('down');
-      pitchTag.innerText = `♭ ${Math.abs(semi)}키 내림 (FLAT)`;
+      pitchTag.innerText = `${Math.abs(semi)}키 내림`;
     } else {
       pitchNumber.innerText = '0';
-      pitchTag.innerText = '원곡 키 (ORIGINAL)';
+      pitchTag.innerText = '원키';
     }
 
     if (state.tempo !== undefined) {
       sliderTempo.value = state.tempo;
-      valTempo.innerText = `${state.tempo.toFixed(2)}x`;
+      valTempo.innerText = `${state.tempo.toFixed(2)}×`;
     }
 
     if (state.volume !== undefined) {
@@ -310,6 +299,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     statusBadge.className = 'status-badge disconnected';
     statusText.innerText = '미연결';
     notYtCard.style.display = 'flex';
+    document.getElementById('footer-shortcut-guide').style.display = 'none';
     mainContent.style.display = 'none';
 
     btnOpenYt.addEventListener('click', () => {
@@ -323,14 +313,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   btnStepUp.addEventListener('click', () => {
-    sendTabMessage({ action: 'CHANGE_PITCH', delta: 1 });
-  });
-
-  btnPitchDown.addEventListener('click', () => {
-    sendTabMessage({ action: 'CHANGE_PITCH', delta: -1 });
-  });
-
-  btnPitchUp.addEventListener('click', () => {
     sendTabMessage({ action: 'CHANGE_PITCH', delta: 1 });
   });
 
@@ -363,13 +345,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Tempo
   sliderTempo.addEventListener('input', (e) => {
     const tempo = parseFloat(e.target.value);
-    valTempo.innerText = `${tempo.toFixed(2)}x`;
+    valTempo.innerText = `${tempo.toFixed(2)}×`;
     sendTabMessage({ action: 'SET_TEMPO', tempo: tempo });
   });
 
   btnResetTempo.addEventListener('click', () => {
     sliderTempo.value = 1.0;
-    valTempo.innerText = '1.0x';
+    valTempo.innerText = '1.00×';
     sendTabMessage({ action: 'SET_TEMPO', tempo: 1.0 });
   });
 

@@ -1,0 +1,8 @@
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+.env
+.env.*
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json

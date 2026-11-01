@@ -1,0 +1,6 @@
+scope: personal
+vault: docs/ai-wiki
+git:
+  commit_mode: auto
+  push: false
+  track_raw: false
