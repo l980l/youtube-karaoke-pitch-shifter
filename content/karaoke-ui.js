@@ -111,34 +111,34 @@ class KaraokeUI {
       </div>
 
       <div class="yk-panel-body">
-        <div class="yk-key-row">
-          <button class="yk-step" id="yk-btn-down" title="반음 내리기" aria-label="반음 내리기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+        <div class="yk-module yk-key-module">
           <div class="yk-key-readout">
             <span class="yk-pitch-value pitch-zero" id="yk-pitch-num">0</span>
             <span class="yk-pitch-unit" id="yk-pitch-unit">원키</span>
           </div>
-          <button class="yk-step" id="yk-btn-up" title="반음 올리기" aria-label="반음 올리기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg></button>
+          <div class="yk-key-actions">
+            <div class="yk-stepper">
+              <button id="yk-btn-down" title="반음 내리기" aria-label="반음 내리기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+              <span class="yk-stepper-divider"></span>
+              <button id="yk-btn-up" title="반음 올리기" aria-label="반음 올리기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg></button>
+            </div>
+            <button class="yk-tinted" id="yk-btn-reset">원키</button>
+          </div>
+          <div class="yk-chips">
+            <button class="yk-chip" id="yk-preset-male-to-female" title="남자가 여자 노래를 부를 때">남→여 −4</button>
+            <button class="yk-chip" id="yk-preset-female-to-male" title="여자가 남자 노래를 부를 때">여→남 +4</button>
+          </div>
         </div>
 
-        <div class="yk-chips">
-          <button class="yk-chip" id="yk-preset-male-to-female" title="남자가 여자 노래를 부를 때">남→여 −4</button>
-          <button class="yk-chip yk-chip-reset" id="yk-btn-reset">원키</button>
-          <button class="yk-chip" id="yk-preset-female-to-male" title="여자가 남자 노래를 부를 때">여→남 +4</button>
-        </div>
-
-        <div class="yk-row">
-          <span class="yk-row-label">속도</span>
+        <div class="yk-module">
+          <div class="yk-slider-head"><span>속도</span><span id="yk-val-tempo">1.00×</span></div>
           <input type="range" class="yk-range" id="yk-slider-tempo" min="0.7" max="1.3" step="0.05" value="1.0" aria-label="속도">
-          <span class="yk-row-value" id="yk-val-tempo">1.00×</span>
-        </div>
-        <div class="yk-row">
-          <span class="yk-row-label">볼륨</span>
+          <div class="yk-slider-head"><span>볼륨</span><span id="yk-val-volume">100%</span></div>
           <input type="range" class="yk-range" id="yk-slider-volume" min="0.5" max="2.0" step="0.05" value="1.0" aria-label="볼륨">
-          <span class="yk-row-value" id="yk-val-volume">100%</span>
         </div>
 
-        <label class="yk-row yk-toggle-row">
-          <span class="yk-row-label">보컬 줄이기</span>
+        <label class="yk-module yk-toggle-row">
+          <span>보컬 줄이기</span>
           <span class="yk-switch">
             <input type="checkbox" id="yk-chk-vocal-cut">
             <span class="yk-track"></span>
@@ -161,6 +161,13 @@ class KaraokeUI {
     this.powerBtnEl = overlay.querySelector('#yk-btn-power');
   }
 
+  /** Control Center 스타일 슬라이더: 채워진 부분을 칠한다 */
+  paintSlider(el) {
+    if (!el) return;
+    const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
+    el.style.setProperty('--fill-pct', `${pct}%`);
+  }
+
   /**
    * 화면 중앙 OSD (On-Screen Display) 생성
    */
@@ -172,7 +179,9 @@ class KaraokeUI {
 
     const osd = document.createElement('div');
     osd.id = 'yk-osd-toast';
-    osd.innerText = '원키';
+    osd.innerHTML = `
+      <svg class="yk-osd-glyph" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4v17M14.5 3v17M6 10.5l12-3M6 16.5l12-3"/></svg>
+      <span class="yk-osd-text">원키</span>`;
     this.container.appendChild(osd);
     this.osdEl = osd;
   }
@@ -290,6 +299,7 @@ class KaraokeUI {
       const val = parseFloat(e.target.value);
       this.shifter.setTempo(val);
       this.tempoValEl.innerText = `${val.toFixed(2)}×`;
+      this.paintSlider(e.target);
       this.notifyStateChange();
     });
 
@@ -297,6 +307,7 @@ class KaraokeUI {
       const val = parseFloat(e.target.value);
       this.shifter.setVolume(val);
       this.volumeValEl.innerText = `${Math.round(val * 100)}%`;
+      this.paintSlider(e.target);
       this.notifyStateChange();
     });
 
@@ -458,6 +469,8 @@ class KaraokeUI {
     if (this.volumeSliderEl) this.volumeSliderEl.value = state.volume;
     if (this.volumeValEl) this.volumeValEl.innerText = `${Math.round(state.volume * 100)}%`;
     if (this.vocalCutCheckEl) this.vocalCutCheckEl.checked = state.vocalCutEnabled;
+    this.paintSlider(this.tempoSliderEl);
+    this.paintSlider(this.volumeSliderEl);
   }
 
   /**
@@ -474,7 +487,9 @@ class KaraokeUI {
    */
   showOSD(text, isDown = false) {
     if (!this.osdEl) return;
-    this.osdEl.innerText = text;
+    const textEl = this.osdEl.querySelector('.yk-osd-text');
+    if (textEl) textEl.innerText = text;
+    else this.osdEl.innerText = text;
     this.osdEl.classList.toggle('yk-osd-down', isDown);
     this.osdEl.classList.add('yk-osd-show');
 
