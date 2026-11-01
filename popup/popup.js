@@ -45,6 +45,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnResetShortcuts = document.getElementById('btn-reset-shortcuts');
   const chkRememberKey = document.getElementById('chk-remember-key');
 
+  // iOS-style sliders: colour the filled part of the track up to the thumb.
+  function paintSlider(el) {
+    const pct = ((el.value - el.min) / (el.max - el.min)) * 100;
+    el.style.setProperty('--fill-pct', `${pct}%`);
+  }
+  document.querySelectorAll('.ios-slider').forEach((el) => {
+    el.addEventListener('input', () => paintSlider(el));
+    paintSlider(el);
+  });
+
   let activeTabId = null;
   let currentConfig = mergeKaraokeConfig(null);
   let listeningAction = null;
@@ -119,7 +129,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     for (const action in s) {
       const btn = document.getElementById(`bind-${action}`);
       if (btn) {
-        btn.innerText = s[action].label || s[action].key;
+        btn.innerText = formatShortcutLabel(s[action].label || s[action].key);
       }
     }
 
@@ -127,9 +137,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const kbdDown = document.getElementById('kbd-down');
     const kbdUp = document.getElementById('kbd-up');
     const kbdReset = document.getElementById('kbd-reset');
-    if (kbdDown && s.pitchDown) kbdDown.innerText = s.pitchDown.label;
-    if (kbdUp && s.pitchUp) kbdUp.innerText = s.pitchUp.label;
-    if (kbdReset && s.pitchReset) kbdReset.innerText = s.pitchReset.label;
+    if (kbdDown && s.pitchDown) kbdDown.innerText = formatShortcutLabel(s.pitchDown.label);
+    if (kbdUp && s.pitchUp) kbdUp.innerText = formatShortcutLabel(s.pitchUp.label);
+    if (kbdReset && s.pitchReset) kbdReset.innerText = formatShortcutLabel(s.pitchReset.label);
   }
 
   // 단축키 캡처 버튼 클릭
@@ -154,7 +164,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (prevBtn) {
         prevBtn.classList.remove('listening');
         const binding = currentConfig.shortcuts[listeningAction];
-        prevBtn.innerText = binding ? binding.label : '-';
+        prevBtn.innerText = binding ? formatShortcutLabel(binding.label) : '-';
       }
       listeningAction = null;
     }
@@ -208,7 +218,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const btn = document.getElementById(`bind-${actionDone}`);
     if (btn) {
       btn.classList.remove('listening');
-      btn.innerText = label;
+      btn.innerText = formatShortcutLabel(label);
     }
 
     await saveConfig();
@@ -285,6 +295,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       valVolume.innerText = `${Math.round(state.volume * 100)}%`;
     }
 
+    paintSlider(sliderTempo);
+    paintSlider(sliderVolume);
+
     if (state.vocalCutEnabled !== undefined) {
       chkVocalCut.checked = state.vocalCutEnabled;
     }
@@ -351,6 +364,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnResetTempo.addEventListener('click', () => {
     sliderTempo.value = 1.0;
+    paintSlider(sliderTempo);
     valTempo.innerText = '1.00×';
     sendTabMessage({ action: 'SET_TEMPO', tempo: 1.0 });
   });
@@ -364,6 +378,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnResetVolume.addEventListener('click', () => {
     sliderVolume.value = 1.0;
+    paintSlider(sliderVolume);
     valVolume.innerText = '100%';
     sendTabMessage({ action: 'SET_VOLUME', volume: 1.0 });
   });

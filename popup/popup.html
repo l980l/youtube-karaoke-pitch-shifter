@@ -8,145 +8,123 @@
 </head>
 <body>
   <div class="popup-container">
-    <header class="header">
-      <div class="brand">
-        <img class="brand-icon" src="../icons/icon48.png" alt="" width="24" height="24">
-        <h1>Tono</h1>
-        <div class="status-badge" id="status-badge" title="현재 탭 연결 상태">
-          <span class="dot"></span>
-          <span id="status-text">연결 대기</span>
+    <!-- ───────── Main view ───────── -->
+    <div class="view" id="tab-content-remote">
+      <header class="nav">
+        <button class="nav-icon" id="tab-btn-settings" title="설정" aria-label="설정">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>
+        </button>
+        <div class="nav-title">
+          <span>Tono</span>
+          <span class="status-badge" id="status-badge" title="현재 탭 연결 상태"><span class="dot"></span><span id="status-text">연결 대기</span></span>
         </div>
-      </div>
-      <label class="switch" title="전체 기능 켜기/끄기">
-        <input type="checkbox" id="chk-master-power" checked>
-        <span class="track"></span>
-        <span class="sr-only" id="power-status-label">켜짐</span>
-      </label>
-    </header>
+        <label class="switch" title="켜기/끄기">
+          <input type="checkbox" id="chk-master-power" checked>
+          <span class="track"></span>
+          <span class="sr-only" id="power-status-label">켜짐</span>
+        </label>
+      </header>
 
-    <nav class="segmented" role="tablist">
-      <button class="segment active" id="tab-btn-remote" role="tab">조절</button>
-      <button class="segment" id="tab-btn-settings" role="tab">설정</button>
-    </nav>
-
-    <div class="tab-content" id="tab-content-remote">
-      <div class="empty-state" id="not-yt-card" style="display: none;">
+      <div class="card empty-state" id="not-yt-card" style="display: none;">
         <p class="empty-title">유튜브에서 사용할 수 있어요</p>
         <p class="empty-desc">영상을 재생한 뒤 다시 열어주세요.</p>
-        <button class="btn btn-primary" id="btn-open-yt">유튜브 노래방 열기</button>
+        <button class="filled-btn" id="btn-open-yt">유튜브 노래방 열기</button>
       </div>
 
       <main class="main-content" id="main-content">
-        <section class="key-panel">
-          <div class="key-row">
-            <button class="step-btn" id="btn-step-down" title="반음 내리기" aria-label="반음 내리기">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg>
-            </button>
-            <div class="key-readout">
-              <span class="pitch-number" id="pitch-number">0</span>
-              <span class="pitch-tag" id="pitch-tag">원키</span>
-            </div>
-            <button class="step-btn" id="btn-step-up" title="반음 올리기" aria-label="반음 올리기">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg>
-            </button>
+        <section class="card hero">
+          <div class="readout">
+            <span class="pitch-number" id="pitch-number">0</span>
+            <span class="pitch-tag" id="pitch-tag">원키</span>
           </div>
 
-          <input type="range" class="range key-range" id="pitch-range-slider" min="-12" max="12" step="1" value="0" aria-label="키">
-          <div class="range-scale"><span>-12</span><span>0</span><span>+12</span></div>
+          <div class="scale">
+            <div class="ticks" aria-hidden="true"></div>
+            <input type="range" class="needle" id="pitch-range-slider" min="-12" max="12" step="1" value="0" aria-label="키">
+            <div class="scale-labels" aria-hidden="true"><span>−12</span><span>0</span><span>+12</span></div>
+          </div>
 
-          <div class="chips">
-            <button class="chip" id="preset-m2f" title="남자가 여자 노래를 부를 때">남→여 −4</button>
-            <button class="chip" id="preset-minus2">−2</button>
-            <button class="chip chip-reset" id="btn-pitch-reset">원키</button>
-            <button class="chip" id="preset-plus2">+2</button>
-            <button class="chip" id="preset-f2m" title="여자가 남자 노래를 부를 때">여→남 +4</button>
+          <div class="hero-actions">
+            <div class="stepper" role="group" aria-label="반음 조절">
+              <button id="btn-step-down" aria-label="반음 내리기" title="반음 내리기">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg>
+              </button>
+              <span class="stepper-divider"></span>
+              <button id="btn-step-up" aria-label="반음 올리기" title="반음 올리기">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg>
+              </button>
+            </div>
+            <button class="tinted-btn" id="btn-pitch-reset">원키</button>
           </div>
         </section>
 
-        <section class="list">
-          <div class="list-row">
-            <div class="row-head">
-              <span class="row-label">속도</span>
-              <span class="row-value" id="val-tempo">1.00×</span>
-              <button class="icon-btn" id="btn-reset-tempo" title="속도 초기화" aria-label="속도 초기화">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg>
-              </button>
-            </div>
-            <input type="range" class="range" id="slider-tempo" min="0.7" max="1.3" step="0.05" value="1.0" aria-label="속도">
-          </div>
+        <div class="presets">
+          <button class="pill" id="preset-m2f" title="남자가 여자 노래를 부를 때">남→여 −4</button>
+          <button class="pill" id="preset-minus2">−2</button>
+          <button class="pill" id="preset-plus2">+2</button>
+          <button class="pill" id="preset-f2m" title="여자가 남자 노래를 부를 때">여→남 +4</button>
+        </div>
 
-          <div class="list-row">
-            <div class="row-head">
-              <span class="row-label">볼륨</span>
-              <span class="row-value" id="val-volume">100%</span>
-              <button class="icon-btn" id="btn-reset-volume" title="볼륨 초기화" aria-label="볼륨 초기화">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.6M4 4v4h4"/></svg>
-              </button>
+        <section class="card group">
+          <div class="cell slider-cell">
+            <div class="cell-head">
+              <span>속도</span>
+              <button class="value-btn" id="btn-reset-tempo" title="눌러서 1.00×로"><span id="val-tempo">1.00×</span></button>
             </div>
-            <input type="range" class="range" id="slider-volume" min="0.5" max="2.0" step="0.05" value="1.0" aria-label="볼륨">
+            <input type="range" class="ios-slider" id="slider-tempo" min="0.7" max="1.3" step="0.05" value="1.0" aria-label="속도">
           </div>
-
-          <label class="list-row toggle-row">
-            <span class="row-text">
-              <span class="row-label">보컬 줄이기</span>
-              <span class="row-desc">일반 음원에서 가운데 목소리를 줄여요</span>
-            </span>
-            <span class="switch">
-              <input type="checkbox" id="chk-vocal-cut">
-              <span class="track"></span>
-            </span>
+          <div class="cell slider-cell">
+            <div class="cell-head">
+              <span>볼륨</span>
+              <button class="value-btn" id="btn-reset-volume" title="눌러서 100%로"><span id="val-volume">100%</span></button>
+            </div>
+            <input type="range" class="ios-slider" id="slider-volume" min="0.5" max="2.0" step="0.05" value="1.0" aria-label="볼륨">
+          </div>
+          <label class="cell toggle-cell">
+            <span class="cell-text">보컬 줄이기<small>가운데 목소리를 줄여 반주처럼</small></span>
+            <span class="switch"><input type="checkbox" id="chk-vocal-cut"><span class="track"></span></span>
           </label>
         </section>
       </main>
     </div>
 
-    <div class="tab-content" id="tab-content-settings" style="display: none;">
-      <section class="list">
-        <label class="list-row toggle-row">
-          <span class="row-text">
-            <span class="row-label">곡별 키 기억</span>
-            <span class="row-desc">곡마다 마지막 키를 다시 적용해요</span>
-          </span>
-          <span class="switch">
-            <input type="checkbox" id="chk-remember-key" checked>
-            <span class="track"></span>
-          </span>
+    <!-- ───────── Settings view ───────── -->
+    <div class="view" id="tab-content-settings" style="display: none;">
+      <header class="nav">
+        <button class="nav-back" id="tab-btn-remote" aria-label="돌아가기">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+          <span>Tono</span>
+        </button>
+        <div class="nav-title"><span>설정</span></div>
+        <span class="nav-spacer"></span>
+      </header>
+
+      <section class="card group">
+        <label class="cell toggle-cell">
+          <span class="cell-text">곡별 키 기억<small>곡마다 마지막 키를 다시 적용해요</small></span>
+          <span class="switch"><input type="checkbox" id="chk-remember-key" checked><span class="track"></span></span>
         </label>
       </section>
 
-      <div class="section-label">단축키 <span class="section-hint">눌러서 변경</span></div>
-      <section class="list">
-        <div class="list-row shortcut-row">
-          <span class="row-label">반음 내리기</span>
-          <button class="kbd-btn btn-key-bind" data-action="pitchDown" id="bind-pitchDown">[</button>
-        </div>
-        <div class="list-row shortcut-row">
-          <span class="row-label">반음 올리기</span>
-          <button class="kbd-btn btn-key-bind" data-action="pitchUp" id="bind-pitchUp">]</button>
-        </div>
-        <div class="list-row shortcut-row">
-          <span class="row-label">원키</span>
-          <button class="kbd-btn btn-key-bind" data-action="pitchReset" id="bind-pitchReset">Alt + 0</button>
-        </div>
-        <div class="list-row shortcut-row">
-          <span class="row-label">화면 컨트롤 표시</span>
-          <button class="kbd-btn btn-key-bind" data-action="toggleUI" id="bind-toggleUI">Alt + M</button>
-        </div>
-        <div class="list-row shortcut-row">
-          <span class="row-label">보컬 줄이기</span>
-          <button class="kbd-btn btn-key-bind" data-action="toggleVocalCut" id="bind-toggleVocalCut">Alt + V</button>
-        </div>
-        <div class="list-row shortcut-row">
-          <span class="row-label">켜기/끄기</span>
-          <button class="kbd-btn btn-key-bind" data-action="togglePower" id="bind-togglePower">Alt + P</button>
-        </div>
+      <p class="group-header">단축키</p>
+      <section class="card group">
+        <div class="cell"><span>반음 내리기</span><button class="kbd-btn btn-key-bind" data-action="pitchDown" id="bind-pitchDown">[</button></div>
+        <div class="cell"><span>반음 올리기</span><button class="kbd-btn btn-key-bind" data-action="pitchUp" id="bind-pitchUp">]</button></div>
+        <div class="cell"><span>원키</span><button class="kbd-btn btn-key-bind" data-action="pitchReset" id="bind-pitchReset">Alt + 0</button></div>
+        <div class="cell"><span>화면 컨트롤</span><button class="kbd-btn btn-key-bind" data-action="toggleUI" id="bind-toggleUI">Alt + M</button></div>
+        <div class="cell"><span>보컬 줄이기</span><button class="kbd-btn btn-key-bind" data-action="toggleVocalCut" id="bind-toggleVocalCut">Alt + V</button></div>
+        <div class="cell"><span>켜기/끄기</span><button class="kbd-btn btn-key-bind" data-action="togglePower" id="bind-togglePower">Alt + P</button></div>
       </section>
-      <button class="btn btn-ghost" id="btn-reset-shortcuts">기본값으로 복원</button>
-    </div>
+      <p class="group-footer">버튼을 누른 뒤 원하는 키를 누르세요.</p>
 
-    <footer class="footer" id="footer-shortcut-guide">
-      <kbd id="kbd-down">[</kbd><kbd id="kbd-up">]</kbd> 키 조절 · <kbd id="kbd-reset">Alt + 0</kbd> 원키
-    </footer>
+      <section class="card group">
+        <button class="cell destructive-cell" id="btn-reset-shortcuts">단축키 기본값으로 복원</button>
+      </section>
+
+      <footer class="footer" id="footer-shortcut-guide">
+        <kbd id="kbd-down">[</kbd><kbd id="kbd-up">]</kbd> 키 · <kbd id="kbd-reset">Alt + 0</kbd> 원키
+      </footer>
+    </div>
   </div>
 
   <script src="../common/config.js"></script>
